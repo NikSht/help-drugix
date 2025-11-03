@@ -2,42 +2,58 @@ name: Update data (monthly)
 
 on:
   schedule:
-    - cron: "0 4 1 * *"   # раз в месяц, 04:00 UTC
-  workflow_dispatch: {}    # запуск вручную из Actions
+    # 04:00 UTC в первый день каждого месяца
+    - cron: "0 4 1 * *"
+  workflow_dispatch: {}
 
+# нужно для коммита обновлённых CSV
 permissions:
-  contents: write          # разрешаем коммитить изменения
+  contents: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    timeout-minutes: 30
 
-      - uses: actions/setup-python@v5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r scripts/requirements.txt
 
       - name: Run updater (ESKLP)
         env:
+          # основной источник — ZIP-дамп ЕСКЛП
+          ESKLP_BULK_URL: ${{ secrets.ESKLP_BULK_URL }}
+          # запасные URL (можно не задавать)
           ESKLP_PRODUCTS_URL: ${{ secrets.ESKLP_PRODUCTS_URL }}
           ESKLP_COMPOSITIONS_URL: ${{ secrets.ESKLP_COMPOSITIONS_URL }}
           ESKLP_PRICES_URL: ${{ secrets.ESKLP_PRICES_URL }}
         run: |
           python scripts/esklp_update.py
 
+      # метка версии, чтобы страницы/кэш всегда подтягивали свежие CSV
       - name: Write version stamp
         run: |
           date -u +'%Y-%m-%dT%H:%M:%SZ' > data/version.txt
 
       - name: Commit & push updated CSVs
         run: |
-          git config user.name "github-actions[bot]"
+          git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/*.csv data/version.txt || true
           git commit -m "Auto-update data" || echo "No changes to commit"
