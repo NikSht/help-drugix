@@ -6,7 +6,7 @@ on:
   workflow_dispatch: {}    # запуск вручную из Actions
 
 permissions:
-  contents: write          # даём правo коммитить в репозиторий
+  contents: write          # разрешаем коммитить изменения
 
 jobs:
   build:
@@ -23,17 +23,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r scripts/requirements.txt
 
-      - name: Run updater
+      - name: Run updater (ESKLP)
         env:
-          GRLS_URL: ${{ secrets.GRLS_URL }}
-          ZNVLP_URL: ${{ secrets.ZNVLP_URL }}
+          ESKLP_PRODUCTS_URL: ${{ secrets.ESKLP_PRODUCTS_URL }}
+          ESKLP_COMPOSITIONS_URL: ${{ secrets.ESKLP_COMPOSITIONS_URL }}
+          ESKLP_PRICES_URL: ${{ secrets.ESKLP_PRICES_URL }}
         run: |
-          python scripts/update_data.py
+          python scripts/esklp_update.py
 
-      # ⬇️ новый шаг — пишем метку версии, чтобы кэш всегда обновлялся
       - name: Write version stamp
         run: |
-          date -u +%Y-%m-%dT%H:%M:%SZ > data/version.txt
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > data/version.txt
 
       - name: Commit & push updated CSVs
         run: |
