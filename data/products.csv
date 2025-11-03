@@ -1,3 +1,3 @@
 product_id,trade_name,dosage_form,pack,country,is_znvlp,atc_code,ru_registry_url,instruction_url
-demo_ibuklin,Ибуклин,Таблетки,№10 (блистер),Индия,True,N02BE51,https://grls.rosminzdrav.ru/,
-demo_teraflu,Терафлю,Порошок для приготовления раствора,Пакет №10,Швейцария,True,N02BE51,https://grls.rosminzdrav.ru/,
+demo_ibuklin,Ибуклин,Таблетки,№10 (блистер),индия,True,N02BE51,https://grls.rosminzdrav.ru/,
+demo_teraflu,Терафлю,Порошок для приготовления раствора,Пакет №10,швейцария,True,N02BE51,https://grls.rosminzdrav.ru/,
