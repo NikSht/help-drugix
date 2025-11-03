@@ -2,33 +2,43 @@ name: Update data (monthly)
 
 on:
   schedule:
-    - cron: "0 4 1 * *"
-  workflow_dispatch: {}
+    - cron: "0 4 1 * *"   # раз в месяц, 04:00 UTC
+  workflow_dispatch: {}    # запуск вручную из Actions
 
 permissions:
-  contents: write   # <— ДОБАВИЛИ ЭТУ СТРОКУ
+  contents: write          # даём правo коммитить в репозиторий
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r scripts/requirements.txt
+
       - name: Run updater
         env:
           GRLS_URL: ${{ secrets.GRLS_URL }}
           ZNVLP_URL: ${{ secrets.ZNVLP_URL }}
-        run: python scripts/update_data.py
+        run: |
+          python scripts/update_data.py
+
+      # ⬇️ новый шаг — пишем метку версии, чтобы кэш всегда обновлялся
+      - name: Write version stamp
+        run: |
+          date -u +%Y-%m-%dT%H:%M:%SZ > data/version.txt
+
       - name: Commit & push updated CSVs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/*.csv || true
+          git add data/*.csv data/version.txt || true
           git commit -m "Auto-update data" || echo "No changes to commit"
           git push
