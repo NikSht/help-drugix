@@ -1,1 +1,23 @@
+[
+  {
+    "id": "demo_ibuklin",
+    "trade_name": "Ибуклин",
+    "dosage_form": "Таблетки",
+    "pack": "№10 (блистер)",
+    "country": "Индия",
+    "atc": "N02BE51",
+    "registry_url": "https://grls.rosminzdrav.ru/",
+    "instruction_url": ""
+  },
+  {
+    "id": "demo_teraflu",
+    "trade_name": "Терафлю",
+    "dosage_form": "Порошок для приготовления раствора",
+    "pack": "Пакет №10",
+    "country": "Швейцария",
+    "atc": "N02BE51",
+    "registry_url": "https://grls.rosminzdrav.ru/",
+    "instruction_url": ""
+  }
+]
 
