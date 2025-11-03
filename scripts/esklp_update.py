@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ESKLP updater (ZIP bulk) — v5
+ESKLP updater (ZIP bulk) — PRO v6
 
-Что умеет:
-- Если задан ESKLP_BULK_URL: скачивает ZIP, извлекает все файлы в память,
-  автоматически классифицирует таблицы на:
-    • products (ТН/форма/упаковка/страна/ATC/ссылки)
-    • compositions (product_id/INN/доза/ед.)
-    • prices (ЖНВЛП: product_id/ТН/цена/дата)
-- Поддерживает форматы внутри ZIP: CSV, XLSX, JSON.
-- Если BULK не задан: fallback на ESKLP_PRODUCTS_URL / ESKLP_COMPOSITIONS_URL / ESKLP_PRICES_URL (JSON/CSV).
-- Нормализация по словарям из dictionaries/.
-- Мэппинг цен: product_id → (бренд+форма) → бренд.
-- Дедуп цен: самая свежая по product_id.
-- Экспорт ATC-иерархии.
-- Обновляет data/version.txt.
+Что делает:
+  • Скачивает ZIP-архив ЕСКЛП (ESKLP_BULK_URL) и парсит все таблицы (XLSX/CSV/JSON)
+  • Автоклассификация таблиц: products / compositions / prices / ATC / manufacturers / registers
+  • Распознаёт русские/английские названия колонок по словарям-синонимам
+  • Нормализует ТН/формы/страны по dictionaries/*
+  • Строит итоговые CSV:
+        data/products.csv      (расширенный состав полей)
+        data/ingredients.csv
+        data/prices.csv        (ЖНВЛП, с дедупликацией по product_id и дате)
+        data/atc.csv           (иерархия 1–5)
+        data/version.txt
+  • При отсутствии BULK — fallback на ESKLP_PRODUCTS_URL / ESKLP_COMPOSITIONS_URL / ESKLP_PRICES_URL
 
-Выход:
-  data/products.csv, data/ingredients.csv, data/prices.csv, data/atc.csv, data/version.txt
+Логика мэппинга цен:
+  price -> product_id (если есть) → (brand+form) → brand
+
+Примечание:
+  Мы добавляем в products.csv дополнительные столбцы (ok для твоего фронта — лишние игнорируются):
+    manufacturer, holder, reg_number, reg_status, country, atc_code, ru_registry_url, instruction_url, etc.
 """
 
 import os, re, io, sys, json, zipfile, hashlib
@@ -41,17 +44,20 @@ U_PROD  = os.getenv("ESKLP_PRODUCTS_URL", "").strip()
 U_COMP  = os.getenv("ESKLP_COMPOSITIONS_URL", "").strip()
 U_PRICE = os.getenv("ESKLP_PRICES_URL", "").strip()
 
-# ---------- utils ----------
+# ====== helpers ======
 def norm(s): return re.sub(r"\s+"," ", (str(s) if s is not None else "").strip())
 def low (s): return norm(s).lower()
 
 def http_get(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=300) as r:
+    with urllib.request.urlopen(url, timeout=360) as r:
         return r.read()
 
 def load_dict_csv(path, to_lower=True):
     if not os.path.exists(path): return {}
-    df = pd.read_csv(path)
+    try:
+        df = pd.read_csv(path)
+    except Exception:
+        return {}
     out = {}
     for _,r in df.iterrows():
         src = str(r.get("src","")).strip()
@@ -80,10 +86,11 @@ def split_atc(atc: str):
         "level5": code if len(code)>=7 else "",
     }
 
-# ---------- flexible tabular readers ----------
+# ====== readers ======
 def read_table_from_bytes(name: str, data: bytes) -> pd.DataFrame:
     n = name.lower()
-    # try JSON
+
+    # JSON
     try:
         if n.endswith(".json"):
             obj = json.loads(data.decode("utf-8", errors="ignore"))
@@ -91,7 +98,8 @@ def read_table_from_bytes(name: str, data: bytes) -> pd.DataFrame:
             return pd.json_normalize(obj)
     except Exception:
         pass
-    # try CSV (utf-8; fallback cp1251/semicolon)
+
+    # CSV (utf-8/; fallback ;)
     try:
         text = data.decode("utf-8", errors="ignore")
         try:
@@ -100,22 +108,24 @@ def read_table_from_bytes(name: str, data: bytes) -> pd.DataFrame:
             return pd.read_csv(io.StringIO(text), sep=";")
     except Exception:
         pass
-    # try XLSX
+
+    # XLSX
     if n.endswith((".xlsx",".xls")):
         return pd.read_excel(io.BytesIO(data))
+
     return pd.DataFrame()
 
 def load_table_url(url: str) -> pd.DataFrame:
     if not url: return pd.DataFrame()
     raw = http_get(url)
-    # try JSON
+    # JSON
     try:
         arr = json.loads(raw.decode("utf-8", errors="ignore"))
         if isinstance(arr, dict) and "data" in arr: arr = arr["data"]
         return pd.json_normalize(arr)
     except Exception:
         pass
-    # try CSV
+    # CSV
     try:
         text = raw.decode("utf-8", errors="ignore")
         try:
@@ -124,71 +134,118 @@ def load_table_url(url: str) -> pd.DataFrame:
             return pd.read_csv(io.StringIO(text), sep=";")
     except Exception:
         pass
-    # try XLSX
+    # XLSX
     try:
         return pd.read_excel(io.BytesIO(raw))
     except Exception:
         return pd.DataFrame()
 
-# ---------- classification heuristics ----------
-def classify_table(df: pd.DataFrame, filename: str) -> str | None:
-    cols = set([c.lower() for c in df.columns])
+# ====== schema / synonyms ======
+# ключи — множества синонимов для русских/английских названий
+COLS = {
+    "product_id": {"product_id","id","ид","код","код_изделия","идентификатор","ид_продукта"},
+    "trade_name": {"trade_name","brand","tn","тн","торговое_наименование","наименование_торговое","лекарственный_препарат"},
+    "dosage_form":{"dosage_form","form","форма","форма_выпуска","лекарственная_форма"},
+    "pack":       {"pack","package","упаковка","упак","доза_упаковки","количество_в_упаковке"},
+    "country":    {"country","origin_country","страна","страна_производства","страна_происхождения"},
+    "atc_code":   {"atc_code","atc","атс","атх","код_атс","код_атх"},
+    "registry":   {"ru_registry_url","registry_url","grls","грлс","ссылка_грлс"},
+    "leaflet":    {"instruction_url","leaflet_url","инструкция","ссылка_инструкция"},
+
+    "inn":        {"inn","ingredient","substance","мнг","мнн","действующее_вещество","ингредиент","вещество"},
+    "strength":   {"strength","dose","доза","количество","содержание"},
+    "unit":       {"unit","uom","ед","единица","единица_изм","ед_изм"},
+
+    "price":      {"price_rub","price","znvlp_price","предельная_цена","цена","макс_цена"},
+    "price_date": {"date","price_date","updated_at","дата","дата_установления"},
+
+    "manufacturer":{"manufacturer","producer","изготовитель","производитель","организация_производитель"},
+    "holder":     {"holder","владелец_рег_удостоверения","держатель_регистрации","держатель_ру"},
+    "reg_number": {"reg_number","регистрационный_номер","рег_номер","номер_ру"},
+    "reg_status": {"status","reg_status","статус","статус_регистрации"},
+}
+
+def pick(row, key, default=""):
+    # выбираем значение по набору синонимов
+    synonyms = COLS.get(key, set())
+    for c in row.index:
+        if c.lower() in synonyms:
+            v = row[c]
+            if pd.notna(v): return v
+    return default
+
+def pick_from_df(df, key):
+    syns = COLS.get(key, set())
+    for c in df.columns:
+        if c.lower() in syns:
+            return c
+    return None
+
+# ====== classification ======
+def guess_kind(df: pd.DataFrame, filename: str) -> str | None:
+    cols = {c.lower() for c in df.columns}
     name = filename.lower()
 
     # compositions
-    if {"product_id","inn"}.issubset(cols): return "compositions"
-    if ("product_id" in cols and ("substance" in cols or "ingredient" in cols)): return "compositions"
+    if {"inn"} & cols and ("product_id" in cols or "id" in cols or "код" in cols):
+        return "compositions"
+    if ("substance" in cols or "ingredient" in cols) and ("product_id" in cols or "id" in cols):
+        return "compositions"
+    if any(k in name for k in ["состав","ингредиент","composition","ingredients"]):
+        return "compositions"
 
     # prices
-    if ("price_rub" in cols or "price" in cols or "znvlp_price" in cols):
-        if "trade_name" in cols or "brand" in cols or "product_id" in cols:
+    if ({"price_rub","price","znvlp_price","цена","предельная_цена"} & cols):
+        if {"product_id","trade_name","brand","тн","торговое_наименование"} & cols:
             return "prices"
-    if any(k in name for k in ["znvlp","price","цена","жнвлп"]): return "prices"
+    if any(k in name for k in ["жнвлп","price","цена","предельн"]):
+        return "prices"
 
     # products
-    prod_keys = {"trade_name","dosage_form","pack","country"} & cols
-    if len(prod_keys) >= 2: return "products"
-    if any(k in name for k in ["prod","product","tn","trade","brand","реестр","лекарств"]):
+    prod_keys = {"trade_name","brand","торговое_наименование","dosage_form","форма_выпуска","pack","упаковка","country","страна"} & cols
+    if len(prod_keys) >= 2:
         return "products"
+    if any(k in name for k in ["prod","product","лекарств","реестр","препарат","tn","brand"]):
+        return "products"
+
+    # atc / атх — отдельная таблица бывает не всегда
+    if {"atc","atc_code","атс","атх"} & cols:
+        return "products"  # полезнее слить с продуктами
 
     return None
 
-# ---------- load from BULK zip ----------
+# ====== load from BULK zip ======
 def load_from_bulk(url: str):
     raw = http_get(url)
     products, comps, prices = [], [], []
-
     with zipfile.ZipFile(io.BytesIO(raw)) as zf:
         for info in zf.infolist():
             if info.is_dir(): continue
             fname = info.filename
             data = zf.read(info)
             df = read_table_from_bytes(fname, data)
-            if df.empty: continue
-            kind = classify_table(df, fname)
-            if kind == "products":
-                products.append(df)
-            elif kind == "compositions":
-                comps.append(df)
-            elif kind == "prices":
-                prices.append(df)
-
+            if df.empty: 
+                continue
+            kind = guess_kind(df, fname)
+            if kind == "products":     products.append(df)
+            elif kind == "compositions": comps.append(df)
+            elif kind == "prices":      prices.append(df)
     dfp = pd.concat(products, ignore_index=True) if products else pd.DataFrame()
-    dfi = pd.concat(comps, ignore_index=True) if comps else pd.DataFrame()
-    dfz = pd.concat(prices, ignore_index=True) if prices else pd.DataFrame()
+    dfi = pd.concat(comps,     ignore_index=True) if comps     else pd.DataFrame()
+    dfz = pd.concat(prices,    ignore_index=True) if prices    else pd.DataFrame()
     return dfp, dfi, dfz
 
-# ---------- main ----------
+# ====== main ======
 def main():
     os.makedirs(DATA_DIR, exist_ok=True)
 
-    # dictionaries
+    # словари нормализаций
     d_inn   = load_dict_csv(os.path.join(DICT_DIR,"inn_synonyms.csv"), True)
     d_brand = load_dict_csv(os.path.join(DICT_DIR,"brand_synonyms.csv"), False)
     d_form  = load_dict_csv(os.path.join(DICT_DIR,"form_normalization.csv"), True)
     d_ctry  = load_dict_csv(os.path.join(DICT_DIR,"country_normalization.csv"), True)
 
-    # load raw
+    # загрузка сырых таблиц
     if U_BULK:
         print(f"→ BULK ZIP: {U_BULK}")
         dfp_raw, dfi_raw, dfz_raw = load_from_bulk(U_BULK)
@@ -200,50 +257,68 @@ def main():
     # ---------- PRODUCTS transform ----------
     prows=[]
     for _,r in (dfp_raw if not dfp_raw.empty else pd.DataFrame()).iterrows():
-        pid = str(r.get("product_id") or r.get("id") or "").strip()
-        tn  = syn(norm(r.get("trade_name") or r.get("brand") or r.get("tn") or ""), d_brand, to_lower=False)
-        frm = syn(norm(r.get("dosage_form") or r.get("form") or ""), d_form, True)
-        pack= norm(r.get("pack") or r.get("package") or r.get("packaging") or "")
-        ctr = syn(low (r.get("country") or r.get("origin_country") or ""), d_ctry, True)
-        atc = norm(r.get("atc_code") or r.get("atc") or "").upper()
-        reg = norm(r.get("ru_registry_url") or r.get("registry_url") or r.get("grls") or "")
-        ins = norm(r.get("instruction_url") or r.get("leaflet_url") or "")
+        pid = str(pick(r, "product_id", "")).strip()
+        tn  = syn(norm(pick(r, "trade_name", "")), d_brand, to_lower=False)
+        frm = syn(norm(pick(r, "dosage_form", "")), d_form, True)
+        pack= norm(pick(r, "pack", ""))
+        ctr = syn(low (pick(r, "country", "")), d_ctry, True)
+        atc = norm(pick(r, "atc_code", "")).upper()
+        reg = norm(pick(r, "registry", ""))
+        ins = norm(pick(r, "leaflet", ""))
+
+        manufacturer = norm(pick(r, "manufacturer", ""))
+        holder       = norm(pick(r, "holder", ""))
+        reg_number   = norm(pick(r, "reg_number", ""))
+        reg_status   = norm(pick(r, "reg_status", ""))
+
         if not pid:
             pid = synthetic_id(tn, frm, pack)
+
         prows.append({
-            "product_id": pid, "trade_name": tn, "dosage_form": frm, "pack": pack,
-            "country": ctr, "is_znvlp": False, "atc_code": atc,
-            "ru_registry_url": reg, "instruction_url": ins
+            "product_id": pid,
+            "trade_name": tn,
+            "dosage_form": frm,
+            "pack": pack,
+            "country": ctr,
+            "is_znvlp": False,
+            "atc_code": atc,
+            "ru_registry_url": reg,
+            "instruction_url": ins,
+            "manufacturer": manufacturer,
+            "holder": holder,
+            "reg_number": reg_number,
+            "reg_status": reg_status
         })
     dfP = pd.DataFrame(prows).drop_duplicates() if prows else pd.DataFrame()
     if dfP.empty:
-        print("ERROR: products empty (BULK not parsed?)", file=sys.stderr); sys.exit(1)
+        print("ERROR: products empty (BULK not parsed?)", file=sys.stderr)
+        return 1
 
     # ---------- COMPOSITIONS transform ----------
     irows=[]
     for _,r in (dfi_raw if not dfi_raw.empty else pd.DataFrame()).iterrows():
-        pid = str(r.get("product_id") or r.get("id") or "").strip()
-        inn = syn(low(r.get("inn") or r.get("ingredient") or r.get("substance") or ""), d_inn, True)
-        strength = str(r.get("strength") or r.get("dose") or "").replace(",", ".")
-        unit = low(r.get("unit") or r.get("uom") or "")
+        pid = str(pick(r, "product_id", "")).strip() or str(pick(r,"trade_name",""))
+        inn = syn(low(pick(r, "inn", "")), d_inn, True)
+        strength = str(pick(r, "strength", "")).replace(",", ".")
+        unit = low(pick(r, "unit", ""))
         if pid and inn:
             irows.append({"product_id":pid,"inn":inn,"strength":strength,"unit":unit})
     dfI = pd.DataFrame(irows).drop_duplicates(subset=["product_id","inn","strength","unit"]) if irows else pd.DataFrame()
 
-    # ---------- PRICES transform ----------
+    # ---------- PRICES (ЖНВЛП) ----------
     zrows=[]
     for _,r in (dfz_raw if not dfz_raw.empty else pd.DataFrame()).iterrows():
-        price = r.get("price_rub", r.get("price", r.get("znvlp_price", None)))
-        if price is None: continue
+        price = pick(r, "price", None)
+        if price in (None, ""): continue
         try: price = float(str(price).replace(",", ".")); 
         except Exception: continue
-        pid = str(r.get("product_id") or r.get("id") or "").strip()
-        tn  = low(r.get("trade_name") or r.get("brand") or r.get("tn") or "")
-        date= norm(r.get("date") or r.get("price_date") or r.get("updated_at") or datetime.utcnow().date().isoformat())
+        pid = str(pick(r,"product_id","")).strip()
+        tn  = low(pick(r,"trade_name",""))
+        date= norm(pick(r,"price_date","")) or datetime.utcnow().date().isoformat()
         zrows.append({"product_id":pid,"trade_name":tn,"price":price,"date":date})
     dfZ_raw = pd.DataFrame(zrows)
 
-    # ---------- match prices to products ----------
+    # индексы для мэппинга цен
     pid_set = set(dfP["product_id"].astype(str))
     idx_brand, idx_bf = {}, {}
     for _,r in dfP.iterrows():
@@ -276,7 +351,7 @@ def main():
         zn = set(dfZ["product_id"].astype(str))
         dfP["is_znvlp"] = dfP["product_id"].astype(str).isin(zn)
 
-    # ATC-иерархия
+    # ---------- ATC иерархия ----------
     atc_rows=[]
     for _,r in dfP.iterrows():
         info = split_atc(r.get("atc_code",""))
@@ -298,6 +373,7 @@ def main():
         f.write(datetime.utcnow().isoformat())
 
     print(f"OK bulk: products={len(dfP)}, ingrs={len(dfI)}, prices={len(dfZ)}, atc_rows={len(dfA)}")
+    return 0
 
 if __name__ == "__main__":
     sys.exit(main())
