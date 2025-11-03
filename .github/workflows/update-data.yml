@@ -1,8 +1,13 @@
 name: Update data (monthly)
+
 on:
   schedule:
     - cron: "0 4 1 * *"
   workflow_dispatch: {}
+
+permissions:
+  contents: write   # <— ДОБАВИЛИ ЭТУ СТРОКУ
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,10 +25,10 @@ jobs:
           GRLS_URL: ${{ secrets.GRLS_URL }}
           ZNVLP_URL: ${{ secrets.ZNVLP_URL }}
         run: python scripts/update_data.py
-      - name: Commit & push
+      - name: Commit & push updated CSVs
         run: |
-          git config user.name "gh-actions"
-          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/*.csv || true
-          git commit -m "Auto-update data" || echo "No changes"
+          git commit -m "Auto-update data" || echo "No changes to commit"
           git push
