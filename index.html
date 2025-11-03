@@ -14,22 +14,28 @@
     body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
     .wrap{max-width:960px;margin:0 auto;padding:20px}
     .brand{display:flex;align-items:center;gap:12px;margin:6px 0 18px}
-    .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#5aa0ff,#9b7bff)}
     h1{font-size:20px;margin:0}
     .tabs{display:flex;gap:10px;margin-bottom:14px}
     .tab{padding:10px 16px;border-radius:10px;cursor:pointer;background:#0d1320;border:1px solid #273047}
     .tab.active{background:var(--accent);color:#0b1020;font-weight:700}
-    .card{background:var(--card);border:1px solid #273047;border-radius:16px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+    .card{background:var(--card);border:1px solid #273047;border-radius:16px;padding:16px}
     .row{display:flex;gap:10px;flex-wrap:wrap}
     input,select,button{background:#0e121a;color:var(--ink);border:1px solid #2a3346;border-radius:12px;padding:12px 14px;font-size:15px}
     input::placeholder{color:#71809a}
     button{background:var(--accent);border-color:var(--accent);color:#0b1020;font-weight:700;cursor:pointer}
-    .pill{background:#0d1320;border:1px solid #2a3346;color:#b8c2d6;border-radius:999px;padding:6px 10px;font-size:12px}
+    .pill{background:#0d1320;border:1px solid #2a3346;border-radius:999px;padding:6px 10px;font-size:12px}
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:12px}
-    .drug{background:#0e121a;border:1px solid #2a3346;border-radius:14px;padding:12px;position:relative}
-    .fav{position:absolute;top:10px;right:10px;background:none;border:none;font-size:22px;cursor:pointer;color:#556580;transition:0.15s ease-in-out;}
-    .fav:hover{transform:scale(1.2);}
-    .fav.active{color:#ffd93d;text-shadow:0 0 6px rgba(255,217,61,.7);transform:scale(1.25);}
+    .drug{
+      position:relative;
+      background:#0e121a;border:1px solid #2a3346;border-radius:14px;padding:12px;
+      padding-right:44px; /* запас для звезды, чтобы текст не наезжал */
+    }
+    .fav{
+      position:absolute;top:10px;right:10px;background:none;border:none;font-size:22px;
+      cursor:pointer;color:#556580;transition:0.15s ease-in-out;
+    }
+    .fav:hover{transform:scale(1.2)}
+    .fav.active{color:#ffd93d;text-shadow:0 0 6px rgba(255,217,61,.7);transform:scale(1.25)}
     .name{font-weight:700;margin-bottom:4px}
     .meta{color:var(--muted);font-size:13px;margin:6px 0}
     .tags{display:flex;gap:6px;flex-wrap:wrap}
@@ -39,11 +45,11 @@
 </head>
 <body>
   <div class="wrap">
-    <div class="brand"><div class="logo"></div><h1>Help.Drugix — поиск комбинированных препаратов (РФ)</h1></div>
+    <div class="brand"><h1>Help.Drugix — поиск комбинированных препаратов (РФ)</h1></div>
 
     <div class="tabs">
       <div class="tab active" id="tabSearch">Поиск</div>
-      <div class="tab" id="tabFavs">Избранное</div>
+      <div class="tab" id="tabFavs">Избранное ⭐</div>
     </div>
 
     <div class="card" id="searchCard">
@@ -55,173 +61,178 @@
         <select id="form"><option value="">Форма выпуска</option></select>
         <select id="country"><option value="">Страна</option></select>
         <label class="pill"><input type="checkbox" id="znvlp" /> ЖНВЛП</label>
+        <label class="pill"><input type="checkbox" id="modePatient" /> Для пациента</label>
       </div>
     </div>
 
     <div class="grid" id="results"></div>
-    <div class="empty" id="empty" style="display:none">Ничего не найдено. Измените запрос или фильтры.</div>
+    <div class="empty" id="empty" style="display:none">Список пуст</div>
   </div>
 
-  <script>
-    try { if(window.Telegram && Telegram.WebApp){ Telegram.WebApp.ready(); Telegram.WebApp.setBackgroundColor('#0f1115'); Telegram.WebApp.setHeaderColor('#151924'); } } catch(e){}
+<script>
+  // Telegram Mini App — безопасно
+  try{Telegram.WebApp?.ready();Telegram.WebApp.setHeaderColor('#151924');Telegram.WebApp.setBackgroundColor('#0f1115')}catch(e){}
 
-    let VERSION = Date.now().toString();
+  // Версионный анти-кэш
+  let VERSION = Date.now().toString();
+  async function getVersion(){
+    try{ VERSION=(await fetch('data/version.txt',{cache:'no-store'}).then(r=>r.text())).trim()||VERSION }catch(e){}
+  }
+  const url = p => `${p}?v=${encodeURIComponent(VERSION)}`;
 
-    async function getVersion(){
-      try { VERSION = (await fetch('data/version.txt',{cache:'no-store'}).then(r=>r.text())).trim() || VERSION; }
-      catch(e){}
-    }
-    const url = p => `${p}?v=${encodeURIComponent(VERSION)}`;
-
-    function parseCSV(text){
-      const lines = text.trim().split(/\r?\n/);
-      const headers = lines.shift().split(',').map(h=>h.trim());
-      return lines.filter(Boolean).map(line=>{
-        const cells=[]; let q=false; let c='';
-        for(const ch of line){
-          if(ch==='\"'){ q=!q; continue; }
-          if(ch===',' && !q){ cells.push(c); c=''; }
-          else { c+=ch; }
-        }
-        cells.push(c);
-        const obj={}; headers.forEach((h,i)=>obj[h]= (cells[i]||'').trim());
-        return obj;
-      });
-    }
-
-    const state = { products:[], ingredients:[], prices:[], favs:new Set(), showFavs:false };
-
-    function getFavs(){ return new Set(JSON.parse(localStorage.getItem('favs')||'[]')); }
-    function setFavs(s){ localStorage.setItem('favs', JSON.stringify([...s])); }
-
-    async function load(){
-      await getVersion();
-      const [p,i,r] = await Promise.all([
-        fetch(url('data/products.csv'),{cache:'no-store'}).then(r=>r.text()),
-        fetch(url('data/ingredients.csv'),{cache:'no-store'}).then(r=>r.text()),
-        fetch(url('data/prices.csv'),{cache:'no-store'}).then(r=>r.text())
-      ]);
-      state.products = parseCSV(p);
-      state.ingredients = parseCSV(i).map(x=>({...x, inn:(x.inn||'').toLowerCase()}));
-      state.prices = parseCSV(r);
-      state.favs = getFavs();
-      hydrateFilters();
-      const urlQ = new URLSearchParams(location.search).get('q');
-      if(urlQ) document.getElementById('q').value = urlQ;
-      doSearch();
-    }
-
-    function hydrateFilters(){
-      const forms = new Set(state.products.map(x=>x.dosage_form).filter(Boolean));
-      const formSel = document.getElementById('form');
-      forms.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; formSel.appendChild(o); });
-
-      const countries = new Set(state.products.map(x=>x.country).filter(Boolean));
-      const countrySel = document.getElementById('country');
-      countries.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; countrySel.appendChild(o); });
-    }
-
-    function normalizeInnList(s){
-      return (s||'').toLowerCase().replace(/[,+/]/g,' ').split(/\s+/).filter(Boolean);
-    }
-
-    function doSearch(){
-      const q = document.getElementById('q').value.trim();
-      const fs = document.getElementById('form').value;
-      const cn = document.getElementById('country').value;
-      const zn = document.getElementById('znvlp').checked;
-      const list = normalizeInnList(q);
-
-      const acc=new Map();
-      state.ingredients.forEach(item=>{
-        if(!list.length || list.includes(item.inn)){
-          const set = acc.get(item.product_id) || new Set();
-          set.add(item.inn);
-          acc.set(item.product_id, set);
-        }
-      });
-
-      const neededCount = new Set(list).size;
-      let ids = [...acc.entries()].filter(([id,s]) => !list.length || s.size===neededCount).map(([id])=>id);
-
-      let items = state.products.filter(x=>ids.includes(x.product_id));
-      if(fs) items = items.filter(x=>x.dosage_form===fs);
-      if(cn) items = items.filter(x=>x.country===cn);
-      if(zn) items = items.filter(x=>String(x.is_znvlp).toLowerCase()==='true');
-
-      if(state.showFavs){
-        items = items.filter(x=> state.favs.has(x.product_id));
+  // Простой CSV-парсер без зависимостей (поддержка кавычек)
+  function parseCSV(text){
+    const lines = text.trim().split(/\r?\n/);
+    const headers = (lines.shift()||'').split(',').map(h=>h.trim());
+    return lines.filter(Boolean).map(line=>{
+      const cells=[]; let q=false; let c='';
+      for(const ch of line){
+        if(ch==='\"'){ q=!q; continue }
+        if(ch===',' && !q){ cells.push(c); c=''; } else { c+=ch }
       }
+      cells.push(c);
+      const obj={}; headers.forEach((h,i)=>obj[h]=(cells[i]||'').trim());
+      return obj;
+    });
+  }
 
-      render(items);
+  const S = { p:[], i:[], r:[], favs:new Set(), showFavs:false };
+
+  const favLoad = () => new Set(JSON.parse(localStorage.getItem('favs')||'[]'));
+  const favSave = (set) => localStorage.setItem('favs', JSON.stringify([...set]));
+
+  async function load(){
+    await getVersion();
+    const [p,i,r] = await Promise.all([
+      fetch(url('data/products.csv'),{cache:'no-store'}).then(r=>r.text()),
+      fetch(url('data/ingredients.csv'),{cache:'no-store'}).then(r=>r.text()),
+      fetch(url('data/prices.csv'),{cache:'no-store'}).then(r=>r.text())
+    ]);
+    S.p = parseCSV(p);
+    S.i = parseCSV(i).map(x=>({...x, inn:(x.inn||'').toLowerCase()}));
+    S.r = parseCSV(r);
+    S.favs = favLoad();
+    fillFilters();
+    const urlQ = new URLSearchParams(location.search).get('q');
+    if(urlQ) document.getElementById('q').value = urlQ;
+    refresh();
+  }
+
+  function fillFilters(){
+    const forms=[...new Set(S.p.map(x=>x.dosage_form).filter(Boolean))].sort();
+    const countries=[...new Set(S.p.map(x=>x.country).filter(Boolean))].sort();
+    const formSel=document.getElementById('form'); formSel.innerHTML='<option value="">Форма выпуска</option>';
+    forms.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;formSel.appendChild(o)});
+    const countrySel=document.getElementById('country'); countrySel.innerHTML='<option value="">Страна</option>';
+    countries.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;countrySel.appendChild(o)});
+  }
+
+  // Запрос: поддержка пробелов/плюсов/запятых/слэшей
+  const parseInns = s => (s||'').toLowerCase().replace(/[,+/]/g,' ').split(/\s+/).filter(Boolean);
+
+  function search(){
+    const q=document.getElementById('q').value.trim();
+    const fs=document.getElementById('form').value;
+    const cn=document.getElementById('country').value;
+    const zn=document.getElementById('znvlp').checked;
+    const isPatient=document.getElementById('modePatient').checked;
+    const list=parseInns(q);
+
+    const acc=new Map();
+    for(const row of S.i){
+      if(!list.length || list.includes(row.inn)){
+        const set=acc.get(row.product_id)||new Set();
+        set.add(row.inn); acc.set(row.product_id,set);
+      }
     }
+    const need=new Set(list).size;
+    let ids=[...acc.entries()].filter(([_,set])=>!list.length||set.size===need).map(([id])=>id);
 
-    function toggleFav(id){
-      if(state.favs.has(id)) state.favs.delete(id);
-      else state.favs.add(id);
-      setFavs(state.favs);
-      refresh();
+    let items=S.p.filter(p=>ids.includes(p.product_id));
+    if(fs) items=items.filter(p=>p.dosage_form===fs);
+    if(cn) items=items.filter(p=>p.country===cn);
+    if(zn) items=items.filter(p=>String(p.is_znvlp).toLowerCase()==='true');
+    if(isPatient){
+      const allowed=new Set(['Таблетки','Капсулы','Порошок','Суспензия']);
+      items=items.filter(p=>allowed.has(p.dosage_form||''));
     }
+    if(S.showFavs) items=items.filter(p=>S.favs.has(p.product_id));
 
-    function render(items){
-      const root = document.getElementById('results');
-      const empty = document.getElementById('empty');
-      root.innerHTML = '';
-      empty.style.display = items.length? 'none':'block';
+    render(items);
+  }
 
-      items.forEach(p=>{
-        const ingr = state.ingredients.filter(x=>x.product_id===p.product_id).map(x=>`${x.inn} ${x.strength||''}${x.unit||''}`.trim()).join(' + ');
-        const price = state.prices.find(x=>x.product_id===p.product_id);
-        const div = document.createElement('div');
-        div.className = 'drug';
+  function toggleFav(id){
+    if(S.favs.has(id)) S.favs.delete(id); else S.favs.add(id);
+    favSave(S.favs);
+    refresh();
+  }
 
-        const favBtn = document.createElement('button');
-        favBtn.className = 'fav' + (state.favs.has(p.product_id)? ' active':'');
-        favBtn.innerHTML = state.favs.has(p.product_id)? '★':'☆';
-        favBtn.onclick = ()=>toggleFav(p.product_id);
+  function render(items){
+    const root=document.getElementById('results');
+    const empty=document.getElementById('empty');
+    root.innerHTML='';
+    empty.style.display=items.length?'none':'block';
 
-        div.appendChild(favBtn);
-        div.innerHTML += `
-          <div class="name">${p.trade_name||'Без названия'}</div>
-          <div class="meta">${ingr||'—'}<br/>${p.dosage_form||''} • ${p.pack||''}</div>
-          <div class="tags">
-            ${p.country? `<span class='pill'>${p.country}</span>` : ''}
-            ${(String(p.is_znvlp).toLowerCase()==='true')? `<span class='pill'>ЖНВЛП</span>` : ''}
-            ${p.atc_code? `<span class='pill'>ATC: ${p.atc_code}</span>` : ''}
-          </div>
-          <div class="meta">${price? `Предельная цена: <b>${price.znvlp_price_rub} ₽</b> (на ${price.price_date})` : ''}</div>
-          <div class="meta">${p.ru_registry_url? `<a href='${p.ru_registry_url}' target='_blank'>ГРЛС</a>`:''}
-                        ${p.instruction_url? ` • <a href='${p.instruction_url}' target='_blank'>Инструкция</a>`:''}</div>
-        `;
-        root.appendChild(div);
-      });
-    }
+    items.forEach(p=>{
+      const ingr=S.i.filter(x=>x.product_id===p.product_id).map(x=>`${x.inn} ${x.strength||''}${x.unit||''}`.trim()).join(' + ');
+      const price=S.r.find(x=>x.product_id===p.product_id);
 
-    function showSearch(){
-      document.getElementById('tabSearch').classList.add('active');
-      document.getElementById('tabFavs').classList.remove('active');
-      state.showFavs = false;
-      document.getElementById('searchCard').style.display='block';
-      doSearch();
-    }
-    function showFavs(){
-      document.getElementById('tabFavs').classList.add('active');
-      document.getElementById('tabSearch').classList.remove('active');
-      state.showFavs = true;
-      document.getElementById('searchCard').style.display='none';
-      render(state.products.filter(x=>state.favs.has(x.product_id)));
-    }
+      const div=document.createElement('div');
+      div.className='drug';
+      // сначала контент…
+      div.innerHTML = `
+        <div class="name">${p.trade_name||'Без названия'}</div>
+        <div class="meta">${ingr||'—'}<br/>${p.dosage_form||''} • ${p.pack||''}</div>
+        <div class="tags">
+          ${p.country? `<span class='pill'>${p.country}</span>`:''}
+          ${String(p.is_znvlp).toLowerCase()==='true' ? `<span class='pill'>ЖНВЛП</span>`:''}
+          ${p.atc_code? `<span class='pill'>ATC: ${p.atc_code}</span>`:''}
+        </div>
+        <div class="meta">${price? `Предельная цена: <b>${price.znvlp_price_rub} ₽</b> (на ${price.price_date})`:''}</div>
+        <div class="meta">
+          ${p.ru_registry_url? `<a href='${p.ru_registry_url}' target='_blank'>ГРЛС</a>`:''}
+          ${p.instruction_url? ` • <a href='${p.instruction_url}' target='_blank'>Инструкция</a>`:''}
+        </div>
+      `;
+      // …потом кнопка ⭐ (чтобы innerHTML не «съел» её)
+      const fav=document.createElement('button');
+      const active=S.favs.has(p.product_id);
+      fav.className='fav'+(active?' active':'');
+      fav.textContent=active?'★':'☆';
+      fav.onclick=()=>toggleFav(p.product_id);
+      div.appendChild(fav);
 
-    document.getElementById('tabSearch').onclick = showSearch;
-    document.getElementById('tabFavs').onclick = showFavs;
+      root.appendChild(div);
+    });
+  }
 
-    document.getElementById('find').onclick = doSearch;
-    document.getElementById('q').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
-    document.getElementById('form').onchange = doSearch;
-    document.getElementById('country').onchange = doSearch;
-    document.getElementById('znvlp').onchange = doSearch;
+  function showSearchTab(){
+    document.getElementById('tabSearch').classList.add('active');
+    document.getElementById('tabFavs').classList.remove('active');
+    S.showFavs=false;
+    document.getElementById('searchCard').style.display='block';
+    search();
+  }
+  function showFavsTab(){
+    document.getElementById('tabFavs').classList.add('active');
+    document.getElementById('tabSearch').classList.remove('active');
+    S.showFavs=true;
+    document.getElementById('searchCard').style.display='none';
+    render(S.p.filter(p=>S.favs.has(p.product_id)));
+  }
+  const refresh=()=> (S.showFavs? showFavsTab(): search());
 
-    load();
-  </script>
+  // события
+  document.getElementById('tabSearch').onclick=showSearchTab;
+  document.getElementById('tabFavs').onclick=showFavsTab;
+  document.getElementById('find').onclick=search;
+  document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')search()});
+  document.getElementById('form').onchange=search;
+  document.getElementById('country').onchange=search;
+  document.getElementById('znvlp').onchange=search;
+  document.getElementById('modePatient').onchange=search;
+
+  load();
+</script>
 </body>
 </html>
