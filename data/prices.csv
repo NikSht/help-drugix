@@ -1,2 +1,3 @@
-product_id,pack,znvlp_price_rub,price_date,updated_at
-855862c6,Табл. №10,120.5,2024-11-03,2025-11-03
+product_id,znvlp_price_rub,price_date
+demo_ibuklin,120.5,2024-11-03
+demo_teraflu,0.0,2024-11-03
