@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Help.Drugix — комбо-поиск</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#0f1115; --card:#151924; --ink:#e6e8ef; --muted:#9aa3b2; --accent:#6aa0ff; }
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+    .wrap{max-width:920px;margin:0 auto;padding:20px}
+    .brand{display:flex;align-items:center;gap:12px;margin:6px 0 18px}
+    .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#5aa0ff,#9b7bff)}
+    h1{font-size:20px;margin:0}
+    .card{background:var(--card);border:1px solid #273047;border-radius:16px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    input,select,button{background:#0e121a;color:var(--ink);border:1px solid #2a3346;border-radius:12px;padding:12px 14px;font-size:15px}
+    input::placeholder{color:#71809a}
+    button{background:var(--accent);border-color:var(--accent);color:#0b1020;font-weight:700;cursor:pointer}
+    .pill{background:#0d1320;border:1px solid #2a3346;color:#b8c2d6;border-radius:999px;padding:6px 10px;font-size:12px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:12px}
+    .drug{background:#0e121a;border:1px solid #2a3346;border-radius:14px;padding:12px}
+    .name{font-weight:700}
+    .meta{color:var(--muted);font-size:13px;margin:6px 0}
+    .tags{display:flex;gap:6px;flex-wrap:wrap}
+    .empty{color:#9aa3b2;opacity:.8;padding:24px;text-align:center}
+    a{color:#9bbcff;text-decoration:none}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand"><div class="logo"></div><h1>Help.Drugix — поиск комбинированных препаратов (РФ)</h1></div>
+
+    <div class="card" id="searchCard">
+      <div class="row">
+        <input id="q" type="text" placeholder="пример: парацетамол + ибупрофен" style="flex:1;min-width:220px" />
+        <button id="find">Найти</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <select id="form"><option value="">Форма выпуска</option></select>
+        <select id="country"><option value="">Страна</option></select>
+        <label class="pill"><input type="checkbox" id="znvlp" /> ЖНВЛП</label>
+      </div>
+    </div>
+
+    <div class="grid" id="results"></div>
+    <div class="empty" id="empty" style="display:none">Ничего не найдено. Измените запрос или фильтры.</div>
+  </div>
+
+  <script>
+    // --- Telegram Mini App init (works also in a regular browser) ---
+    try { if (window.Telegram && Telegram.WebApp) { Telegram.WebApp.ready(); Telegram.WebApp.setHeaderColor('#151924'); Telegram.WebApp.setBackgroundColor('#0f1115'); } } catch(e){}
+
+    // --- Data sources: static CSV files placed next to index.html in /data ---
+    const DATA = {
+      products: 'data/products.csv',
+      ingredients: 'data/ingredients.csv',
+      prices: 'data/prices.csv'
+    };
+
+    // Small CSV parser (no external libs)
+    function parseCSV(text){
+      const lines = text.trim().split(/\r?\n/); const headers = lines.shift().split(',').map(h=>h.trim());
+      return lines.map(line=>{ const cells = []; let q=false,c='',i=0; for(const ch of line){ if(ch==='"'){ q=!q; continue } if(ch===',' && !q){ cells.push(c); c=''; } else { c+=ch } } cells.push(c); const obj={}; headers.forEach((h,idx)=>obj[h]= (cells[idx]||'').trim()); return obj; });
+    }
+
+    const state = { products:[], ingredients:[], prices:[] };
+
+    async function load(){
+      const [p,i,r] = await Promise.all([
+        fetch(DATA.products).then(r=>r.text()),
+        fetch(DATA.ingredients).then(r=>r.text()),
+        fetch(DATA.prices).then(r=>r.text())
+      ]);
+      state.products = parseCSV(p);
+      state.ingredients = parseCSV(i).map(x=>({ ...x, inn:x.inn.toLowerCase() }))
+      state.prices = parseCSV(r);
+      hydrateFilters();
+      // If opened with start param like ?q=парацетамол+ибупрофен
+      const urlQ = new URLSearchParams(location.search).get('q');
+      if(urlQ){ document.getElementById('q').value = urlQ; doSearch(); }
+    }
+
+    function hydrateFilters(){
+      const formSel = document.getElementById('form');
+      const uniqForms = Array.from(new Set(state.products.map(p=>p.dosage_form).filter(Boolean))).sort();
+      uniqForms.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; formSel.appendChild(o) });
+      const countrySel = document.getElementById('country');
+      const uniqCountries = Array.from(new Set(state.products.map(p=>p.country).filter(Boolean))).sort();
+      uniqCountries.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; countrySel.appendChild(o) });
+    }
+
+    function normalizeInnList(s){
+      return s.split('+').map(x=>x.trim().toLowerCase()).filter(Boolean);
+    }
+
+    function doSearch(){
+      const q = document.getElementById('q').value.trim();
+      const forms = document.getElementById('form').value;
+      const country = document.getElementById('country').value;
+      const needZnvlp = document.getElementById('znvlp').checked;
+      const inns = normalizeInnList(q);
+
+      // Build map product_id -> set of matched INNs
+      const acc = new Map();
+      for(const row of state.ingredients){
+        if(inns.length===0 || inns.includes(row.inn)){
+          const set = acc.get(row.product_id) || new Set();
+          set.add(row.inn); acc.set(row.product_id,set);
+        }
+      }
+      // Take only products where all inns matched
+      let productIds = Array.from(acc.entries()).filter(([pid,set])=> inns.length===0 || set.size===new Set(inns).size).map(([pid])=>pid);
+
+      let items = state.products.filter(p=> productIds.includes(p.product_id));
+      if(forms) items = items.filter(p=>p.dosage_form===forms);
+      if(country) items = items.filter(p=>p.country===country);
+      if(needZnvlp) items = items.filter(p=> String(p.is_znvlp).toLowerCase()==='true');
+
+      render(items);
+    }
+
+    function render(items){
+      const root = document.getElementById('results');
+      root.innerHTML='';
+      document.getElementById('empty').style.display = items.length? 'none':'block';
+      items.forEach(p=>{
+        const ingr = state.ingredients.filter(i=>i.product_id===p.product_id).map(i=>`${i.inn} ${i.strength||''}${i.unit||''}`.trim()).join(' + ');
+        const price = state.prices.find(x=>x.product_id===p.product_id);
+        const div = document.createElement('div');
+        div.className='drug';
+        div.innerHTML = `
+          <div class="name">${p.trade_name || 'Без названия'}</div>
+          <div class="meta">${ingr || '—'}<br/>${p.dosage_form || ''} • ${p.pack || ''}</div>
+          <div class="tags">
+            ${p.country? `<span class='pill'>${p.country}</span>`:''}
+            ${p.is_znvlp==='true' || p.is_znvlp===true ? `<span class='pill'>ЖНВЛП</span>`:''}
+            ${p.atc_code? `<span class='pill'>ATC: ${p.atc_code}</span>`:''}
+          </div>
+          <div class="meta">${price? `Предельная цена: <b>${price.znvlp_price_rub} ₽</b> (на ${price.price_date})`:' '}</div>
+          <div class="meta">${p.ru_registry_url? `<a href='${p.ru_registry_url}' target='_blank'>ГРЛС</a>`:''} ${p.instruction_url? ` • <a href='${p.instruction_url}' target='_blank'>Инструкция</a>`:''}</div>
+        `;
+        root.appendChild(div);
+      });
+    }
+
+    document.getElementById('find').addEventListener('click', doSearch);
+    document.getElementById('q').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
+    document.getElementById('form').addEventListener('change', doSearch);
+    document.getElementById('country').addEventListener('change', doSearch);
+    document.getElementById('znvlp').addEventListener('change', doSearch);
+
+    load();
+  </script>
+</body>
+</html>
