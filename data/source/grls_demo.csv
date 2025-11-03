@@ -1,0 +1,4 @@
+trade_name,reg_number,reg_status,dosage_form,composition,pack,country,holder,manufacturer,atc_code,instruction_url,ru_registry_url
+Ибуклин,ЛП-001234,Действует,Таблетки,"ибупрофен 400 мг + парацетамол 325 мг","Табл. №10",Индия,Микролабс Лтд.,Микролабс Лтд.,N02BE51,https://example.org/ibuklin.pdf,https://grls.rosminzdrav.ru/
+Терафлю,ЛП-002345,Действует,Порошок,"парацетамол 325 мг + фенирамин 20 мг + фенилэфрин 10 мг","Пакеты №10",Швейцария,GSK,GSK,N02BE51,https://example.org/teraflu.pdf,https://grls.rosminzdrav.ru/
+Ринза,ЛП-003456,Действует,Таблетки,"парацетамол 500 мг + кофеин 30 мг + фенилэфрин 10 мг + хлорфенирамин 2 мг","Табл. №10",Индия,Юник Фармасьютикалс,Юник Фармасьютикалс,N02BE51,https://example.org/rinza.pdf,https://grls.rosminzdrav.ru/
