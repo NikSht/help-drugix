@@ -61,7 +61,6 @@
         <select id="form"><option value="">Форма выпуска</option></select>
         <select id="country"><option value="">Страна</option></select>
         <label class="pill"><input type="checkbox" id="znvlp" /> ЖНВЛП</label>
-        <label class="pill"><input type="checkbox" id="modePatient" /> Для пациента</label>
       </div>
     </div>
 
@@ -135,7 +134,6 @@
     const fs=document.getElementById('form').value;
     const cn=document.getElementById('country').value;
     const zn=document.getElementById('znvlp').checked;
-    const isPatient=document.getElementById('modePatient').checked;
     const list=parseInns(q);
 
     const acc=new Map();
@@ -152,10 +150,6 @@
     if(fs) items=items.filter(p=>p.dosage_form===fs);
     if(cn) items=items.filter(p=>p.country===cn);
     if(zn) items=items.filter(p=>String(p.is_znvlp).toLowerCase()==='true');
-    if(isPatient){
-      const allowed=new Set(['Таблетки','Капсулы','Порошок','Суспензия']);
-      items=items.filter(p=>allowed.has(p.dosage_form||''));
-    }
     if(S.showFavs) items=items.filter(p=>S.favs.has(p.product_id));
 
     render(items);
