@@ -28,7 +28,7 @@
     .drug{
       position:relative;
       background:#0e121a;border:1px solid #2a3346;border-radius:14px;padding:12px;
-      padding-right:44px; /* запас для звезды, чтобы текст не наезжал */
+      padding-right:44px; /* запас для звезды */
     }
     .fav{
       position:absolute;top:10px;right:10px;background:none;border:none;font-size:22px;
@@ -41,6 +41,19 @@
     .tags{display:flex;gap:6px;flex-wrap:wrap}
     .empty{color:#9aa3b2;opacity:.8;padding:24px;text-align:center}
     a{color:#9bbcff;text-decoration:none}
+
+    /* Автоподсказки */
+    .searchbox{position:relative;flex:1;min-width:220px}
+    .ac{
+      position:absolute;left:0;right:0;top:100%;margin-top:6px;
+      background:#0e121a;border:1px solid #2a3346;border-radius:12px;
+      box-shadow:0 4px 18px rgba(0,0,0,.35);z-index:20;max-height:260px;overflow:auto;
+      display:none;
+    }
+    .ac-item{padding:10px 12px;cursor:pointer;border-bottom:1px solid #1b2436}
+    .ac-item:last-child{border-bottom:none}
+    .ac-item b{color:#e9ecf6}
+    .ac-item:hover,.ac-item.active{background:#162032}
   </style>
 </head>
 <body>
@@ -54,7 +67,10 @@
 
     <div class="card" id="searchCard">
       <div class="row">
-        <input id="q" type="text" placeholder="пример: парацетамол + ибупрофен" style="flex:1;min-width:220px" />
+        <div class="searchbox">
+          <input id="q" type="text" placeholder="пример: парацетамол + ибупрофен" />
+          <div id="ac" class="ac"></div>
+        </div>
         <button id="find">Найти</button>
       </div>
       <div class="row" style="margin-top:10px">
@@ -69,17 +85,17 @@
   </div>
 
 <script>
-  // Telegram Mini App — безопасно
+  // Telegram MiniApp — безопасно
   try{Telegram.WebApp?.ready();Telegram.WebApp.setHeaderColor('#151924');Telegram.WebApp.setBackgroundColor('#0f1115')}catch(e){}
 
-  // Версионный анти-кэш
+  // Анти-кэш
   let VERSION = Date.now().toString();
   async function getVersion(){
     try{ VERSION=(await fetch('data/version.txt',{cache:'no-store'}).then(r=>r.text())).trim()||VERSION }catch(e){}
   }
   const url = p => `${p}?v=${encodeURIComponent(VERSION)}`;
 
-  // Простой CSV-парсер без зависимостей (поддержка кавычек)
+  // CSV parser
   function parseCSV(text){
     const lines = text.trim().split(/\r?\n/);
     const headers = (lines.shift()||'').split(',').map(h=>h.trim());
@@ -95,23 +111,37 @@
     });
   }
 
-  const S = { p:[], i:[], r:[], favs:new Set(), showFavs:false };
+  const S = { p:[], i:[], r:[], favs:new Set(), showFavs:false, synonyms:new Map(), allTerms:[] };
 
   const favLoad = () => new Set(JSON.parse(localStorage.getItem('favs')||'[]'));
   const favSave = (set) => localStorage.setItem('favs', JSON.stringify([...set]));
 
   async function load(){
     await getVersion();
-    const [p,i,r] = await Promise.all([
+    const [p,i,r,syn] = await Promise.all([
       fetch(url('data/products.csv'),{cache:'no-store'}).then(r=>r.text()),
       fetch(url('data/ingredients.csv'),{cache:'no-store'}).then(r=>r.text()),
-      fetch(url('data/prices.csv'),{cache:'no-store'}).then(r=>r.text())
+      fetch(url('data/prices.csv'),{cache:'no-store'}).then(r=>r.text()),
+      fetch(url('data/dictionaries/inn_synonyms.csv'),{cache:'no-store'}).then(r=> r.ok ? r.text() : 'alias,inn')
     ]);
     S.p = parseCSV(p);
     S.i = parseCSV(i).map(x=>({...x, inn:(x.inn||'').toLowerCase()}));
     S.r = parseCSV(r);
     S.favs = favLoad();
+
+    // synonyms map: alias -> normalized inn string
+    parseCSV(syn).forEach(row=>{
+      const a=(row.alias||'').toLowerCase().trim();
+      const v=(row.inn||'').toLowerCase().trim();
+      if(a && v) S.synonyms.set(a,v);
+    });
+
+    // набор терминов для автокомплита (ИНН + алиасы)
+    const innSet = new Set(S.i.map(x=>x.inn).filter(Boolean));
+    S.allTerms = [...new Set([...innSet, ...S.synonyms.keys()])].sort();
+
     fillFilters();
+
     const urlQ = new URLSearchParams(location.search).get('q');
     if(urlQ) document.getElementById('q').value = urlQ;
     refresh();
@@ -126,25 +156,43 @@
     countries.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;countrySel.appendChild(o)});
   }
 
-  // Запрос: поддержка пробелов/плюсов/запятых/слэшей
-  const parseInns = s => (s||'').toLowerCase().replace(/[,+/]/g,' ').split(/\s+/).filter(Boolean);
+  // нормализация ввода: alias -> inn(s), дробим по + , , /
+  function normalizeQueryToInns(s){
+    s=(s||'').toLowerCase();
+    // заменяем alias на канонические МНН (включая комбо alias, например «ибуклин»)
+    // сначала точная замена, если весь запрос — один alias-комбо
+    if(S.synonyms.has(s)) s = S.synonyms.get(s);
+
+    // далее по токенам
+    let raw = s.replace(/[,+/]/g,' ').split(/\s+/).filter(Boolean);
+    raw = raw.map(tok => S.synonyms.get(tok) || tok); // одиночные алиасы
+    // «разворачиваем» возможные подстановки-комбо (парацетамол + ибупрофен)
+    const expanded=[];
+    for(const t of raw){
+      if(t.includes(' + ')) expanded.push(...t.split(' + ').map(x=>x.trim()));
+      else expanded.push(t);
+    }
+    // убираем дубликаты и пустые
+    return [...new Set(expanded.filter(Boolean))];
+  }
 
   function search(){
     const q=document.getElementById('q').value.trim();
     const fs=document.getElementById('form').value;
     const cn=document.getElementById('country').value;
     const zn=document.getElementById('znvlp').checked;
-    const list=parseInns(q);
+
+    const inns = normalizeQueryToInns(q);
 
     const acc=new Map();
     for(const row of S.i){
-      if(!list.length || list.includes(row.inn)){
+      if(!inns.length || inns.includes(row.inn)){
         const set=acc.get(row.product_id)||new Set();
         set.add(row.inn); acc.set(row.product_id,set);
       }
     }
-    const need=new Set(list).size;
-    let ids=[...acc.entries()].filter(([_,set])=>!list.length||set.size===need).map(([id])=>id);
+    const need=new Set(inns).size;
+    let ids=[...acc.entries()].filter(([_,set])=>!inns.length||set.size===need).map(([id])=>id);
 
     let items=S.p.filter(p=>ids.includes(p.product_id));
     if(fs) items=items.filter(p=>p.dosage_form===fs);
@@ -173,7 +221,6 @@
 
       const div=document.createElement('div');
       div.className='drug';
-      // сначала контент…
       div.innerHTML = `
         <div class="name">${p.trade_name||'Без названия'}</div>
         <div class="meta">${ingr||'—'}<br/>${p.dosage_form||''} • ${p.pack||''}</div>
@@ -188,14 +235,12 @@
           ${p.instruction_url? ` • <a href='${p.instruction_url}' target='_blank'>Инструкция</a>`:''}
         </div>
       `;
-      // …потом кнопка ⭐ (чтобы innerHTML не «съел» её)
       const fav=document.createElement('button');
       const active=S.favs.has(p.product_id);
       fav.className='fav'+(active?' active':'');
       fav.textContent=active?'★':'☆';
       fav.onclick=()=>toggleFav(p.product_id);
       div.appendChild(fav);
-
       root.appendChild(div);
     });
   }
@@ -216,15 +261,79 @@
   }
   const refresh=()=> (S.showFavs? showFavsTab(): search());
 
+  // ==== АВТОПОДСКАЗКИ ====
+  const acEl = document.getElementById('ac');
+  const qEl = document.getElementById('q');
+  let acIndex = -1;
+
+  function currentTokens(){
+    const val = qEl.value;
+    // берём всё до последнего разделителя и сам последний токен
+    const parts = val.split(/[\s+]+/);
+    const last = parts.pop() || '';
+    const before = val.slice(0, val.length - last.length);
+    return {before, last:last.toLowerCase()};
+  }
+
+  function showAC(){
+    const {before,last} = currentTokens();
+    if(!last){ acEl.style.display='none'; acIndex=-1; return; }
+    const list = S.allTerms
+      .filter(t=> t.startsWith(last))
+      .slice(0,8);
+
+    if(!list.length){ acEl.style.display='none'; acIndex=-1; return; }
+
+    acEl.innerHTML = list.map((t,i)=>{
+      const hl = `<b>${t.slice(0,last.length)}</b>${t.slice(last.length)}`;
+      return `<div class="ac-item${i===0?' active':''}" data-val="${t}">${hl}</div>`;
+    }).join('');
+    acIndex = 0;
+    acEl.style.display='block';
+
+    // клики
+    [...acEl.querySelectorAll('.ac-item')].forEach((el,idx)=>{
+      el.onclick = ()=>applyAC(el.getAttribute('data-val'));
+    });
+  }
+
+  function moveAC(dir){
+    const items = [...acEl.querySelectorAll('.ac-item')];
+    if(!items.length) return;
+    acIndex = (acIndex + dir + items.length) % items.length;
+    items.forEach((el,i)=> el.classList.toggle('active', i===acIndex));
+  }
+
+  function applyAC(val){
+    const {before,last} = currentTokens();
+    // заменяем последний токен на каноническое значение (учитываем alias-комбо)
+    const normalized = S.synonyms.get(val) || val;
+    const append = normalized.includes(' + ') ? normalized : normalized; // уже обработано
+    const glue = (before && !before.trim().endsWith('+') && before.trim()) ? ' + ' : '';
+    qEl.value = (before.trimEnd() + glue + append).trim();
+    acEl.style.display='none'; acIndex=-1;
+    search();
+  }
+
+  qEl.addEventListener('input', showAC);
+  qEl.addEventListener('keydown', (e)=>{
+    if(acEl.style.display==='block'){
+      if(e.key==='ArrowDown'){ e.preventDefault(); moveAC(1); }
+      else if(e.key==='ArrowUp'){ e.preventDefault(); moveAC(-1); }
+      else if(e.key==='Enter'){ e.preventDefault(); const el=acEl.querySelector('.ac-item.active'); if(el) applyAC(el.getAttribute('data-val')); }
+      else if(e.key==='Escape'){ acEl.style.display='none'; acIndex=-1; }
+    }
+    if(e.key==='Enter' && acEl.style.display!=='block'){ search(); }
+  });
+  document.addEventListener('click', (e)=>{ if(!document.querySelector('.searchbox').contains(e.target)) { acEl.style.display='none'; acIndex=-1; } });
+
   // события
   document.getElementById('tabSearch').onclick=showSearchTab;
   document.getElementById('tabFavs').onclick=showFavsTab;
   document.getElementById('find').onclick=search;
-  document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')search()});
   document.getElementById('form').onchange=search;
   document.getElementById('country').onchange=search;
   document.getElementById('znvlp').onchange=search;
-  document.getElementById('modePatient').onchange=search;
 
   load();
 </script>
