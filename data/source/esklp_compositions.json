@@ -1,1 +1,9 @@
+[
+  { "product_id": "demo_ibuklin", "inn": "ибупрофен",   "strength": "400", "unit": "мг" },
+  { "product_id": "demo_ibuklin", "inn": "парацетамол", "strength": "325", "unit": "мг" },
+
+  { "product_id": "demo_teraflu", "inn": "парацетамол",  "strength": "325", "unit": "мг" },
+  { "product_id": "demo_teraflu", "inn": "фенирамин",    "strength": "20",  "unit": "мг" },
+  { "product_id": "demo_teraflu", "inn": "фенилэфрин",   "strength": "10",  "unit": "мг" }
+]
 
