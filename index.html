@@ -55,11 +55,14 @@
     try { if (window.Telegram && Telegram.WebApp) { Telegram.WebApp.ready(); Telegram.WebApp.setHeaderColor('#151924'); Telegram.WebApp.setBackgroundColor('#0f1115'); } } catch(e){}
 
     // --- Data sources: static CSV files placed next to index.html in /data ---
-    const DATA = {
-      products: 'data/products.csv',
-      ingredients: 'data/ingredients.csv',
-      prices: 'data/prices.csv'
-    };
+    // cache-busting helper
+const CB = Date.now();
+const url = (p) => `${p}?v=${CB}`;
+const DATA = {
+  products: url('data/products.csv'),
+  ingredients: url('data/ingredients.csv'),
+  prices: url('data/prices.csv')
+};
 
     // Small CSV parser (no external libs)
     function parseCSV(text){
@@ -71,10 +74,10 @@
 
     async function load(){
       const [p,i,r] = await Promise.all([
-        fetch(DATA.products).then(r=>r.text()),
-        fetch(DATA.ingredients).then(r=>r.text()),
-        fetch(DATA.prices).then(r=>r.text())
-      ]);
+  fetch(DATA.products, {cache: 'no-store'}).then(r=>r.text()),
+  fetch(DATA.ingredients, {cache: 'no-store'}).then(r=>r.text()),
+  fetch(DATA.prices, {cache: 'no-store'}).then(r=>r.text())
+]);
       state.products = parseCSV(p);
       state.ingredients = parseCSV(i).map(x=>({ ...x, inn:x.inn.toLowerCase() }))
       state.prices = parseCSV(r);
