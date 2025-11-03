@@ -53,6 +53,7 @@
     .ac-item{padding:10px 12px;cursor:pointer;border-bottom:1px solid #1b2436}
     .ac-item:last-child{border-bottom:none}
     .ac-item b{color:#e9ecf6}
+    .ac-item small{color:#9aa3b2;margin-left:6px}
     .ac-item:hover,.ac-item.active{background:#162032}
   </style>
 </head>
@@ -68,7 +69,7 @@
     <div class="card" id="searchCard">
       <div class="row">
         <div class="searchbox">
-          <input id="q" type="text" placeholder="пример: парацетамол + ибупрофен" />
+          <input id="q" type="text" placeholder="пример: парацетамол + ибупрофен / ибуклин / террафлю" />
           <div id="ac" class="ac"></div>
         </div>
         <button id="find">Найти</button>
@@ -90,9 +91,7 @@
 
   // Анти-кэш
   let VERSION = Date.now().toString();
-  async function getVersion(){
-    try{ VERSION=(await fetch('data/version.txt',{cache:'no-store'}).then(r=>r.text())).trim()||VERSION }catch(e){}
-  }
+  async function getVersion(){ try{ VERSION=(await fetch('data/version.txt',{cache:'no-store'}).then(r=>r.text())).trim()||VERSION }catch(e){} }
   const url = p => `${p}?v=${encodeURIComponent(VERSION)}`;
 
   // CSV parser
@@ -111,7 +110,7 @@
     });
   }
 
-  const S = { p:[], i:[], r:[], favs:new Set(), showFavs:false, synonyms:new Map(), allTerms:[] };
+  const S = { p:[], i:[], r:[], favs:new Set(), showFavs:false, synonyms:new Map(), terms:[] };
 
   const favLoad = () => new Set(JSON.parse(localStorage.getItem('favs')||'[]'));
   const favSave = (set) => localStorage.setItem('favs', JSON.stringify([...set]));
@@ -129,16 +128,22 @@
     S.r = parseCSV(r);
     S.favs = favLoad();
 
-    // synonyms map: alias -> normalized inn string
+    // synonyms: alias -> inn(s)
     parseCSV(syn).forEach(row=>{
       const a=(row.alias||'').toLowerCase().trim();
       const v=(row.inn||'').toLowerCase().trim();
       if(a && v) S.synonyms.set(a,v);
     });
 
-    // набор терминов для автокомплита (ИНН + алиасы)
+    // термины для автоподсказок: МНН/алиасы + ТН
     const innSet = new Set(S.i.map(x=>x.inn).filter(Boolean));
-    S.allTerms = [...new Set([...innSet, ...S.synonyms.keys()])].sort();
+    const aliasSet = new Set(S.synonyms.keys());
+    const tradeSet = new Set(S.p.map(p=>(p.trade_name||'').toLowerCase()).filter(Boolean));
+    S.terms = [
+      ...[...innSet].map(t=>({t, kind:'МНН'})),
+      ...[...aliasSet].map(t=>({t, kind:'синоним'})),
+      ...[...tradeSet].map(t=>({t, kind:'торг.назв.'})),
+    ].sort((a,b)=> a.t.localeCompare(b.t));
 
     fillFilters();
 
@@ -156,34 +161,29 @@
     countries.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;countrySel.appendChild(o)});
   }
 
-  // нормализация ввода: alias -> inn(s), дробим по + , , /
+  // нормализация ввода: alias -> inn(s), разбиение по + , /
   function normalizeQueryToInns(s){
-    s=(s||'').toLowerCase();
-    // заменяем alias на канонические МНН (включая комбо alias, например «ибуклин»)
-    // сначала точная замена, если весь запрос — один alias-комбо
+    s=(s||'').toLowerCase().trim();
+    if(!s) return [];
+    // если целиком совпало с alias — разворачиваем
     if(S.synonyms.has(s)) s = S.synonyms.get(s);
-
-    // далее по токенам
+    // по токенам
     let raw = s.replace(/[,+/]/g,' ').split(/\s+/).filter(Boolean);
-    raw = raw.map(tok => S.synonyms.get(tok) || tok); // одиночные алиасы
-    // «разворачиваем» возможные подстановки-комбо (парацетамол + ибупрофен)
+    raw = raw.map(tok => S.synonyms.get(tok) || tok);
     const expanded=[];
-    for(const t of raw){
-      if(t.includes(' + ')) expanded.push(...t.split(' + ').map(x=>x.trim()));
-      else expanded.push(t);
-    }
-    // убираем дубликаты и пустые
+    for(const t of raw){ t.includes(' + ') ? expanded.push(...t.split(' + ').map(x=>x.trim())) : expanded.push(t); }
     return [...new Set(expanded.filter(Boolean))];
   }
 
   function search(){
     const q=document.getElementById('q').value.trim();
+    const ql=q.toLowerCase();
     const fs=document.getElementById('form').value;
     const cn=document.getElementById('country').value;
     const zn=document.getElementById('znvlp').checked;
 
+    // 1) по МНН (и синонимам)
     const inns = normalizeQueryToInns(q);
-
     const acc=new Map();
     for(const row of S.i){
       if(!inns.length || inns.includes(row.inn)){
@@ -192,7 +192,20 @@
       }
     }
     const need=new Set(inns).size;
-    let ids=[...acc.entries()].filter(([_,set])=>!inns.length||set.size===need).map(([id])=>id);
+    let idsByInn=[...acc.entries()].filter(([_,set])=>!inns.length||set.size===need).map(([id])=>id);
+
+    // 2) по торговому названию (подстрока)
+    let idsByTrade=[];
+    if(ql){
+      idsByTrade = S.p
+        .filter(p => (p.trade_name||'').toLowerCase().includes(ql))
+        .map(p => p.product_id);
+    }
+
+    // Итог: если ввели МНН — берём по МНН, плюс добавим бренды, если были.
+    // Если ввели только бренд — берём по бренду.
+    let ids = inns.length ? [...new Set([...idsByInn, ...idsByTrade])] : idsByTrade;
+    if(!ids.length && !inns.length && !ql){ ids = S.p.map(p=>p.product_id); } // пустой запрос — всё
 
     let items=S.p.filter(p=>ids.includes(p.product_id));
     if(fs) items=items.filter(p=>p.dosage_form===fs);
@@ -245,20 +258,8 @@
     });
   }
 
-  function showSearchTab(){
-    document.getElementById('tabSearch').classList.add('active');
-    document.getElementById('tabFavs').classList.remove('active');
-    S.showFavs=false;
-    document.getElementById('searchCard').style.display='block';
-    search();
-  }
-  function showFavsTab(){
-    document.getElementById('tabFavs').classList.add('active');
-    document.getElementById('tabSearch').classList.remove('active');
-    S.showFavs=true;
-    document.getElementById('searchCard').style.display='none';
-    render(S.p.filter(p=>S.favs.has(p.product_id)));
-  }
+  function showSearchTab(){ document.getElementById('tabSearch').classList.add('active'); document.getElementById('tabFavs').classList.remove('active'); S.showFavs=false; document.getElementById('searchCard').style.display='block'; search(); }
+  function showFavsTab(){ document.getElementById('tabFavs').classList.add('active'); document.getElementById('tabSearch').classList.remove('active'); S.showFavs=true; document.getElementById('searchCard').style.display='none'; render(S.p.filter(p=>S.favs.has(p.product_id))); }
   const refresh=()=> (S.showFavs? showFavsTab(): search());
 
   // ==== АВТОПОДСКАЗКИ ====
@@ -268,7 +269,6 @@
 
   function currentTokens(){
     const val = qEl.value;
-    // берём всё до последнего разделителя и сам последний токен
     const parts = val.split(/[\s+]+/);
     const last = parts.pop() || '';
     const before = val.slice(0, val.length - last.length);
@@ -278,23 +278,20 @@
   function showAC(){
     const {before,last} = currentTokens();
     if(!last){ acEl.style.display='none'; acIndex=-1; return; }
-    const list = S.allTerms
-      .filter(t=> t.startsWith(last))
-      .slice(0,8);
+    const list = S.terms
+      .filter(x=> x.t.startsWith(last))
+      .slice(0,10);
 
     if(!list.length){ acEl.style.display='none'; acIndex=-1; return; }
 
-    acEl.innerHTML = list.map((t,i)=>{
-      const hl = `<b>${t.slice(0,last.length)}</b>${t.slice(last.length)}`;
-      return `<div class="ac-item${i===0?' active':''}" data-val="${t}">${hl}</div>`;
+    acEl.innerHTML = list.map((x,i)=>{
+      const t=x.t; const hl = `<b>${t.slice(0,last.length)}</b>${t.slice(last.length)}`;
+      return `<div class="ac-item${i===0?' active':''}" data-val="${t}">${hl}<small>${x.kind}</small></div>`;
     }).join('');
     acIndex = 0;
     acEl.style.display='block';
 
-    // клики
-    [...acEl.querySelectorAll('.ac-item')].forEach((el,idx)=>{
-      el.onclick = ()=>applyAC(el.getAttribute('data-val'));
-    });
+    [...acEl.querySelectorAll('.ac-item')].forEach((el)=> el.onclick = ()=>applyAC(el.getAttribute('data-val')));
   }
 
   function moveAC(dir){
@@ -305,12 +302,10 @@
   }
 
   function applyAC(val){
-    const {before,last} = currentTokens();
-    // заменяем последний токен на каноническое значение (учитываем alias-комбо)
-    const normalized = S.synonyms.get(val) || val;
-    const append = normalized.includes(' + ') ? normalized : normalized; // уже обработано
+    const {before} = currentTokens();
+    const normalized = S.synonyms.get(val) || val; // alias -> inn(s), иначе как есть (включая бренд)
     const glue = (before && !before.trim().endsWith('+') && before.trim()) ? ' + ' : '';
-    qEl.value = (before.trimEnd() + glue + append).trim();
+    qEl.value = (before.trimEnd() + glue + normalized).trim();
     acEl.style.display='none'; acIndex=-1;
     search();
   }
