@@ -1,2 +1,4 @@
-product_id,trade_name,reg_number,reg_status,dosage_form,atc_code,pack,country,holder,instruction_url,ru_registry_url,is_znvlp
-P0001,Ибуклин,ЛП-001234,Действует,Таблетки,N02BE51,Табл. №10,Индия,Микролабс Лтд.,https://example.org/instruction.pdf,https://grls.rosminzdrav.ru/,true
+product_id,trade_name,reg_number,reg_status,dosage_form,form_raw,atc_code,pack,country,holder,manufacturer,instruction_url,ru_registry_url,is_znvlp,updated_at
+855862c6,Ибуклин,ЛП-001234,Действует,таблетки,Таблетки,N02BE51,Табл. №10,Индия,Микролабс Лтд.,Микролабс Лтд.,https://example.org/ibuklin.pdf,https://grls.rosminzdrav.ru/,True,2025-11-03
+7c10ac58,Терафлю,ЛП-002345,Действует,Порошок,Порошок,N02BE51,Пакеты №10,Швейцария,GSK,GSK,https://example.org/teraflu.pdf,https://grls.rosminzdrav.ru/,False,2025-11-03
+d719b4f9,Ринза,ЛП-003456,Действует,таблетки,Таблетки,N02BE51,Табл. №10,Индия,Юник Фармасьютикалс,Юник Фармасьютикалс,https://example.org/rinza.pdf,https://grls.rosminzdrav.ru/,False,2025-11-03
