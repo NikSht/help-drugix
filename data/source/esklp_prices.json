@@ -1,1 +1,5 @@
+[
+  { "product_id": "demo_ibuklin", "trade_name": "Ибуклин", "price_rub": 120.50, "date": "2024-11-03" },
+  { "product_id": "demo_teraflu", "trade_name": "Терафлю", "price_rub": 0,      "date": "2024-11-03" }
+]
 
