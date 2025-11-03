@@ -1,3 +1,2 @@
-atc_code,level1,level2,level3,level4,level5,code_valid,product_id
-N02BE51,N,N02,N02B,N02BE,N02BE51,True,demo_ibuklin
-N02BE51,N,N02,N02B,N02BE,N02BE51,True,demo_teraflu
+atc_code,level1,level2,level3,level4,level5,product_id
+,,,,,,pid_59d7d64dbcc25454
