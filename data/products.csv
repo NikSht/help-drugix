@@ -1,0 +1,2 @@
+product_id,trade_name,reg_number,reg_status,dosage_form,atc_code,pack,country,holder,instruction_url,ru_registry_url,is_znvlp
+P0001,Ибуклин,ЛП-001234,Действует,Таблетки,N02BE51,Табл. №10,Индия,Микролабс Лтд.,https://example.org/instruction.pdf,https://grls.rosminzdrav.ru/,true
