@@ -1,151 +1,207 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import io, os, re, sys, json, zipfile, tempfile, urllib.request
-from pathlib import Path
+"""
+Собираем комбинированные препараты из ESKLP ZIP (xlsx-выпуск):
+- читаем все файлы вида esklp_klp_*.xlsx из архива
+- берём только КЛП с несколькими МНН (признак: "Нормализованное МНН" содержит '+')
+- на выходе: data/products.csv и data/ingredients.csv
+- data/prices.csv — создаём пустой заголовок (заглушка для фронта)
+"""
+
+import os
+import io
+import sys
+import csv
+import glob
+import zipfile
+import urllib.request
+from datetime import datetime
 
 import pandas as pd
 
-# ------------------ настройки ввода/вывода ------------------
-ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT / "data"
-SRC_DIR  = DATA_DIR / "source"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-SRC_DIR.mkdir(parents=True, exist_ok=True)
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(ROOT, "data")
+SRC_DIR  = os.path.join(DATA_DIR, "source")
 
-OUT_PRODUCTS   = DATA_DIR / "products.csv"
-OUT_INGRS      = DATA_DIR / "ingredients.csv"
-OUT_PRICES     = DATA_DIR / "prices.csv"
-OUT_VERSIONTXT = DATA_DIR / "version.txt"  # заполняется джобом отдельно, но не мешает здесь
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(SRC_DIR, exist_ok=True)
 
-# Если секрет не задан – читаем зеркальный ZIP из репозитория (как fallback)
-BULK_URL = os.environ.get("ESKLP_BULK_URL", "").strip()
-LOCAL_ZIP = SRC_DIR / "esklp_bulk.zip"   # fallback: положенный вручную ZIP (или скачанный релизом Actions)
+# ----------------------------
+# Настройки входа/выхода
+# ----------------------------
+OUT_PRODUCTS    = os.path.join(DATA_DIR, "products.csv")
+OUT_INGREDIENTS = os.path.join(DATA_DIR, "ingredients.csv")
+OUT_PRICES      = os.path.join(DATA_DIR, "prices.csv")  # заглушка
 
-# ------------------ утилиты ------------------
-def http_get(url: str, timeout=60) -> bytes:
+# Колонки на выходе (под фронт)
+PRODUCTS_COLUMNS = [
+    "product_id",        # КЛП (код)
+    "trade_name",        # Торговое наименование
+    "dosage_form",       # Нормализованная лекарственная форма
+    "pack",              # Упаковка/дозировка (соберём скромно)
+    "country",           # нет в ESKLP -> пусто
+    "is_znvlp",          # нет данных -> False
+    "atc_code",          # нет в выгрузке -> пусто
+    "ru_registry_url",   # ссылка на ГРЛС (если бы была) -> пусто
+    "instruction_url",   # ссылка на инструкцию -> пусто
+]
+
+ING_COLUMNS = [
+    "product_id",  # КЛП
+    "inn",         # МНН (нормализованное)
+    "strength",    # пусто (выпилим, чтобы не раздувать)
+    "unit",        # пусто
+]
+
+# Названия столбцов в excel (русские имена из вкладки с данными)
+COL_KLP_CODE   = "Код КЛП"
+COL_TRADE_NAME = "Торговое наименование"
+COL_MNN_NORM   = "Нормализованное МНН"
+COL_FORM_NORM  = "Нормализованная лекарственная форма"
+COL_DOSE_NORM  = "Нормализованная дозировка"
+
+def http_get_bytes(url: str, timeout: int = 360) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
 
-def load_zip_bytes() -> bytes:
-    if BULK_URL:
-        print(f"BULK ZIP: {BULK_URL}")
-        return http_get(BULK_URL, timeout=360)
-    # fallback
-    if LOCAL_ZIP.exists():
-        print(f"BULK ZIP (local): {LOCAL_ZIP}")
-        return LOCAL_ZIP.read_bytes()
-    raise RuntimeError("Не нашли ни ESKLP_BULK_URL, ни локальный data/source/esklp_bulk.zip")
-
-def find_country_column(columns):
-    """Берём первый столбец, содержащий 'страна' (на всякий случай для разных версий выгрузки)."""
-    for c in columns:
-        if "страна" in str(c).strip().lower():
-            return c
-    return None
-
-def normalize_str(x):
-    if pd.isna(x):
+def find_local_zip() -> str:
+    # Берём самый большой .zip из data/source — он обычно и есть ESKLP
+    zips = glob.glob(os.path.join(SRC_DIR, "*.zip"))
+    if not zips:
         return ""
-    return str(x).strip()
+    zips.sort(key=lambda p: os.path.getsize(p), reverse=True)
+    return zips[0]
 
-def split_inns(mnn: str):
-    """Разбиваем нормализованное МНН по '+' с очисткой."""
-    if not mnn:
+def load_zip_bytes() -> bytes:
+    url = os.getenv("ESKLP_BULK_URL", "").strip()
+    if url:
+        print(f"BULK ZIP (from URL): {url}")
+        return http_get_bytes(url)
+    local = find_local_zip()
+    if not local:
+        print("ERROR: no ESKLP zip source found (no ESKLP_BULK_URL and no data/source/*.zip)")
+        sys.exit(1)
+    print(f"BULK ZIP (local): {local}")
+    with open(local, "rb") as f:
+        return f.read()
+
+def read_klp_tables_from_zip(zip_bytes: bytes) -> list[pd.DataFrame]:
+    """Возвращаем список датафреймов из листов esklp_klp_*.xlsx (лист с данными — обычно второй)."""
+    dfs = []
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        names = [n for n in zf.namelist() if n.lower().endswith(".xlsx") and "esklp_klp_" in n.lower()]
+        names.sort()
+        print("Found files:")
+        for n in names:
+            print(" -", n)
+        for n in names:
+            with zf.open(n) as fh:
+                # Лист с данными — как правило, второй (index=1). Если не получится — попробуем 0.
+                try_order = [1, 0]
+                read_ok = False
+                for idx in try_order:
+                    try:
+                        df = pd.read_excel(fh, sheet_name=idx, engine="openpyxl")
+                        # нормализуем заголовки: убираем \n и пробелы по краям
+                        df.columns = [str(c).strip().replace("\n", " ").replace("\r", " ") for c in df.columns]
+                        # минимум столбцов должен присутствовать:
+                        if all(c in df.columns for c in [COL_KLP_CODE, COL_TRADE_NAME, COL_MNN_NORM, COL_FORM_NORM, COL_DOSE_NORM]):
+                            dfs.append(df)
+                            read_ok = True
+                            break
+                    except Exception as e:
+                        continue
+                if not read_ok:
+                    print(f"WARN: {n} — не удалось прочитать нужный лист/колонки, пропускаю.")
+    return dfs
+
+def split_inns(mnn: str) -> list[str]:
+    if not isinstance(mnn, str):
         return []
-    # бывают разделители + с пробелами
-    return [p.strip() for p in re.split(r"\s*\+\s*", mnn) if p.strip()]
-
-# ------------------ основная сборка ------------------
-def build_csvs_from_esklp_zip(zip_bytes: bytes):
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
-        # Собираем все XLSX вида esklp_klp_*.xlsx
-        names = [n for n in z.namelist() if re.search(r"(^|/)(esklp_klp_.*?\.xlsx)$", n, flags=re.I)]
-        if not names:
-            raise RuntimeError("В ZIP не найдено esklp_klp_*.xlsx")
-
-        frames = []
-        for name in names:
-            print(f"Found file: {name}")
-            with z.open(name) as f:
-                # читаем все листы и ищем тот, где есть нужные колонки
-                x = pd.read_excel(f, sheet_name=None, dtype=str, engine="openpyxl")
-                for sheet_name, df in x.items():
-                    cols = [str(c).strip() for c in df.columns]
-                    need = {
-                        "Торговое наименование",
-                        "Нормализованное МНН",
-                        "Нормализованная лекарственная форма",
-                        "Нормализованная дозировка",
-                        "Код КЛП",
-                    }
-                    if need.issubset(set(cols)):
-                        df = df.rename(columns={c: c.strip() for c in df.columns})
-                        frames.append(df)
-                        break  # из файла берём один «главный» лист
-
-        if not frames:
-            raise RuntimeError("Не нашли подходящих листов с колонками (КЛП/МНН/форма/дозировка/ТН).")
-
-        df = pd.concat(frames, ignore_index=True)
-
-    # Чистим и приводим
-    for col in df.columns:
-        df[col] = df[col].astype(str).map(lambda x: "" if x == "nan" else x).fillna("")
-
-    col_trade     = "Торговое наименование"
-    col_mnn_norm  = "Нормализованное МНН"
-    col_form_norm = "Нормализованная лекарственная форма"
-    col_dose_norm = "Нормализованная дозировка"
-    col_klp       = "Код КЛП"
-    col_country   = find_country_column(df.columns)  # может не быть – переживём
-
-    # Отбрасываем пустые КЛП
-    df = df[df[col_klp].astype(str).str.strip() != ""].copy()
-
-    # Готовим products.csv
-    products = pd.DataFrame()
-    products["product_id"]          = df[col_klp].map(lambda x: f"klp_{x.strip()}")
-    products["trade_name"]          = df[col_trade].map(normalize_str)
-    products["dosage_form"]         = df[col_form_norm].map(normalize_str)
-    products["pack"]                = ""  # упаковку аккуратно соберём позже (из первичной/вторичной), сейчас пусто
-    products["country"]             = df[col_country].map(normalize_str) if col_country else ""
-    products["is_znvlp"]            = False  # ЕСКЛП != ЖНВЛП; проставим позже из другого источника
-    products["atc_code"]            = ""     # из ГРЛС/АТХ позже
-    products["ru_registry_url"]     = ""     # ссылка на ГРЛС (при желании добавим маппинг)
-    products["instruction_url"]     = ""
-    products["manufacturer"]        = ""     # при желании дотянем позже
-    products["holder_reg_num"]      = ""
-    products["normalized_mnn"]      = df[col_mnn_norm].map(normalize_str)
-    products["klp_code"]            = df[col_klp].map(normalize_str)
-    products["normalized_form"]     = df[col_form_norm].map(normalize_str)
-    products["normalized_strength"] = df[col_dose_norm].map(normalize_str)
-
-    # Убираем дубликаты по product_id
-    products = products.drop_duplicates(subset=["product_id"])
-
-    # Готовим ingredients.csv (один продукт → несколько МНН)
-    rows = []
-    for pid, mnn, dose in zip(products["product_id"], products["normalized_mnn"], products["normalized_strength"]):
-        for inn in split_inns(mnn):
-            rows.append({"product_id": pid, "inn": inn, "strength": dose, "unit": ""})
-    ingrs = pd.DataFrame(rows, columns=["product_id", "inn", "strength", "unit"])
-
-    # prices.csv пока пустой (ЕСКЛП не содержит предельные цены)
-    prices = pd.DataFrame(columns=["product_id", "znvlp_price_rub", "price_date"])
-
-    # Пишем CSV в UTF-8 без BOM, разделитель — запятая
-    products.to_csv(OUT_PRODUCTS, index=False)
-    ingrs.to_csv(OUT_INGRS, index=False)
-    prices.to_csv(OUT_PRICES, index=False)
-
-    print(f"OK: products={len(products)}, ingrs={len(ingrs)}, prices={len(prices)}")
-
+    # Разбиваем по " + " и запятым/точкам с запятыми
+    raw = mnn.replace(";", "+").replace(",", "+")
+    parts = [p.strip() for p in raw.split("+") if p.strip()]
+    # Нормализуем регистр
+    return [p.lower() for p in parts]
 
 def main():
-    zip_bytes = load_zip_bytes()
-    build_csvs_from_esklp_zip(zip_bytes)
+    raw = load_zip_bytes()
+    dfs = read_klp_tables_from_zip(raw)
+    if not dfs:
+        print("ERROR: no tables read from ZIP")
+        sys.exit(1)
+
+    prows = []  # для products.csv
+    irows = []  # для ingredients.csv
+
+    seen_products = set()  # (klp_code) чтобы уникализировать
+    seen_ing = set()       # (klp_code, inn)
+
+    total_rows = 0
+    for df in dfs:
+        total_rows += len(df)
+
+        # Оставляем только комбинированные позиции (есть '+')
+        mask_combo = df[COL_MNN_NORM].astype(str).str.contains(r"\+", regex=True, na=False)
+        sub = df.loc[mask_combo, [COL_KLP_CODE, COL_TRADE_NAME, COL_MNN_NORM, COL_FORM_NORM, COL_DOSE_NORM]].copy()
+
+        for _, r in sub.iterrows():
+            klp = str(r[COL_KLP_CODE]).strip()
+            if not klp or klp == "nan":
+                continue
+
+            trade_name = str(r[COL_TRADE_NAME]).strip()
+            form = str(r[COL_FORM_NORM]).strip()
+            dose = str(r[COL_DOSE_NORM]).strip()
+            mnn_norm = str(r[COL_MNN_NORM]).strip()
+
+            # pack соберём из нормализованной дозировки (без излишков)
+            pack = dose
+
+            if klp not in seen_products:
+                prows.append([
+                    klp,             # product_id
+                    trade_name,      # trade_name
+                    form,            # dosage_form
+                    pack,            # pack
+                    "",              # country
+                    False,           # is_znvlp
+                    "",              # atc_code
+                    "",              # ru_registry_url
+                    "",              # instruction_url
+                ])
+                seen_products.add(klp)
+
+            inns = split_inns(mnn_norm)
+            for inn in inns:
+                key = (klp, inn)
+                if inn and key not in seen_ing:
+                    irows.append([klp, inn, "", ""])
+                    seen_ing.add(key)
+
+    print(f"OK: scanned_rows={total_rows}, products={len(prows)}, ingrs={len(irows)}")
+
+    # Пишем products.csv (компактно)
+    with open(OUT_PRODUCTS, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(PRODUCTS_COLUMNS)
+        w.writerows(prows)
+
+    # Пишем ingredients.csv
+    with open(OUT_INGREDIENTS, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(ING_COLUMNS)
+        w.writerows(irows)
+
+    # Пишем пустышку цен, чтобы фронт не ломался
+    if not os.path.exists(OUT_PRICES):
+        with open(OUT_PRICES, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(["product_id","znvlp_price_rub","price_date"])
+
+    print("DONE")
 
 if __name__ == "__main__":
     main()
