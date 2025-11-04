@@ -9,38 +9,44 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
-    :root{--bg:#0f1115;--card:#151924;--ink:#e6e8ef;--muted:#9aa3b2;--accent:#6aa0ff;}
+    :root{--bg:#0f1115;--card:#151924;--ink:#e6e8ef;--muted:#9aa3b2;--accent:#6aa0ff;--line:#273047;}
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
-    .wrap{max-width:920px;margin:0 auto;padding:20px}
-    .brand{display:flex;align-items:center;gap:12px;margin:6px 0 18px}
+    .wrap{max-width:980px;margin:0 auto;padding:20px}
+    .brand{display:flex;align-items:center;gap:12px;margin:6px 0 14px}
     .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#5aa0ff,#9b7bff)}
     h1{font-size:20px;margin:0}
-    .card{background:var(--card);border:1px solid #273047;border-radius:16px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+
+    .tabs{display:flex;gap:10px;margin:8px 0 14px}
+    .tab{background:#0e121a;border:1px solid var(--line);color:var(--ink);border-radius:999px;padding:8px 14px;font-weight:600;cursor:pointer}
+    .tab.active{background:var(--accent);border-color:var(--accent);color:#0b1020}
+
+    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,.25)}
     .row{display:flex;gap:10px;flex-wrap:wrap}
-    input,select,button{background:#0e121a;color:var(--ink);border:1px solid #2a3346;border-radius:12px;padding:12px 14px;font-size:15px}
+    input,select,button{background:#0e121a;color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:15px}
     input::placeholder{color:#71809a}
-    button{background:var(--accent);border-color:var(--accent);color:#0b1020;font-weight:700;cursor:pointer}
-    .pill{background:#0d1320;border:1px solid #2a3346;color:#b8c2d6;border-radius:999px;padding:6px 10px;font-size:12px}
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:12px}
-    .drug{background:#0e121a;border:1px solid #2a3346;border-radius:14px;padding:12px;position:relative}
-    .name{font-weight:700;padding-right:28px}
+    button.btn{background:var(--accent);border-color:var(--accent);color:#0b1020;font-weight:700;cursor:pointer}
+    .pill{background:#0d1320;border:1px solid var(--line);color:#b8c2d6;border-radius:999px;padding:6px 10px;font-size:12px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:12px}
+    .drug{background:#0e121a;border:1px solid var(--line);border-radius:14px;padding:12px;position:relative}
+    .name{font-weight:700;padding-right:32px}
     .meta{color:var(--muted);font-size:13px;margin:6px 0}
     .tags{display:flex;gap:6px;flex-wrap:wrap}
     .empty{color:#9aa3b2;opacity:.8;padding:24px;text-align:center}
     a{color:#9bbcff;text-decoration:none}
-
-    .row select{max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .row select{max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
     /* Избранное */
     .fav{
-      position:absolute;top:10px;right:10px;
-      background:none;border:none;cursor:pointer;
+      position:absolute;top:10px;right:10px;background:none;border:none;cursor:pointer;
       font-size:18px;line-height:1;transform-origin:center;transition:.15s transform ease-in-out;
       color:#55668a; z-index:2;
     }
-    .fav:hover{transform:scale(1.15)}
     .fav.active{color:#ffd24d}
+    .fav:hover{transform:scale(1.15)}
+
+    /* Кнопка вариантов в карточке */
+    .variants-btn{margin-top:6px;background:#0e1726;border-color:#33415e;color:#c7d2ee}
 
     /* Спиннер */
     .spinner{display:none;align-items:center;gap:8px;margin-top:10px;color:var(--muted);font-size:14px}
@@ -48,28 +54,69 @@
     .spinner .dot:nth-child(2){animation-delay:.2s}
     .spinner .dot:nth-child(3){animation-delay:.4s}
     @keyframes b{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}
+
+    /* Модалка */
+    .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:50}
+    .modal{background:#0f1420;border:1px solid var(--line);border-radius:16px;max-width:720px;width:92%;max-height:80vh;overflow:auto}
+    .modal header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);font-weight:700}
+    .modal .body{padding:12px 16px}
+    table{width:100%;border-collapse:collapse}
+    th,td{border-bottom:1px solid #22304a;padding:8px 6px;font-size:14px}
+    th{color:#cdd6e7;text-align:left;position:sticky;top:0;background:#0f1420}
+
+    /* Табы избранного/поиска */
+    .hidden{display:none}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="brand"><div class="logo"></div><h1>Help.Drugix — поиск комбинированных препаратов (РФ)</h1></div>
 
-    <div class="card" id="searchCard">
-      <div class="row">
-        <input id="q" type="text" placeholder="пример: парацетамол + ибупрофен • или введите торговое название" style="flex:1;min-width:220px" />
-        <button id="find">Найти</button>
-      </div>
-      <div class="row" style="margin-top:10px;align-items:center">
-        <select id="form"><option value="">Форма выпуска</option></select>
-        <select id="country" style="display:none"><option value="">Страна</option></select>
-        <label class="pill" title="ЖНВЛП"><input type="checkbox" id="znvlp" /> ЖНВЛП</label>
-        <label class="pill" title="Показывать только моно-препараты"><input type="checkbox" id="exactInn" checked /> Только это вещество</label>
-      </div>
-      <div id="spinner" class="spinner"><div class="dot"></div><div class="dot"></div><div class="dot"></div><span>Ищу…</span></div>
+    <div class="tabs">
+      <button id="tabSearch" class="tab active">Поиск</button>
+      <button id="tabFavs" class="tab">Избранное ★</button>
     </div>
 
-    <div class="grid" id="results"></div>
-    <div class="empty" id="empty" style="display:none">Ничего не найдено. Измените запрос или фильтры.</div>
+    <div id="searchPane">
+      <div class="card" id="searchCard">
+        <div class="row">
+          <input id="q" type="text" placeholder="пример: парацетамол + ибупрофен • или введите торговое название" style="flex:1;min-width:220px" />
+          <button id="find" class="btn">Найти</button>
+        </div>
+        <div class="row" style="margin-top:10px;align-items:center">
+          <select id="form"><option value="">Форма выпуска</option></select>
+          <select id="country" style="display:none"><option value="">Страна</option></select>
+          <label class="pill" title="ЖНВЛП"><input type="checkbox" id="znvlp" /> ЖНВЛП</label>
+        </div>
+        <div id="spinner" class="spinner"><div class="dot"></div><div class="dot"></div><div class="dot"></div><span>Ищу…</span></div>
+      </div>
+
+      <div class="grid" id="results"></div>
+      <div class="empty" id="empty" style="display:none">Ничего не найдено. Измените запрос или фильтры.</div>
+    </div>
+
+    <div id="favsPane" class="hidden">
+      <div class="grid" id="favs"></div>
+      <div class="empty" id="favsEmpty" style="display:none">В избранном пока пусто.</div>
+    </div>
+  </div>
+
+  <!-- Модалка "Варианты" -->
+  <div id="modalBack" class="modal-back">
+    <div class="modal">
+      <header>
+        <div id="modalTitle">Варианты</div>
+        <button id="modalClose" class="tab">Закрыть</button>
+      </header>
+      <div class="body">
+        <table id="variantsTable">
+          <thead><tr>
+            <th>Состав</th><th>Форма</th><th>Дозировка / упаковка</th><th>Теги</th><th>Ссылки</th><th>★</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -78,8 +125,7 @@
 
     const DATA = {
       products: 'data/products.csv',
-      ingredients: 'data/ingredients.csv',
-      prices: 'data/prices.csv'
+      ingredients: 'data/ingredients.csv'
     };
 
     function parseCSV(text){
@@ -90,7 +136,7 @@
         const cells=[]; let q=false, c='';
         for(let i=0;i<line.length;i++){
           const ch=line[i];
-          if(ch==='"'){ q = !q; continue; }
+          if(ch==='"'){ q=!q; continue; }
           if(ch===sep && !q){ cells.push(c); c=''; } else c+=ch;
         }
         cells.push(c);
@@ -98,54 +144,27 @@
       });
     }
 
-    const S = { products:[], ingredients:[], favs:new Set(JSON.parse(localStorage.getItem('favs')||'[]')) };
-    const spinner = document.getElementById('spinner');
+    const S = {
+      products:[], ingredients:[],
+      favs:new Set(JSON.parse(localStorage.getItem('favs')||'[]')),
+      terms:new Set()
+    };
 
+    const spinner = document.getElementById('spinner');
     function showSpin(on){ spinner.style.display = on ? 'flex':'none'; }
 
-    async function load(){
-      const [p,i] = await Promise.all([
-        fetch(DATA.products,{cache:'no-store'}).then(r=>r.text()),
-        fetch(DATA.ingredients,{cache:'no-store'}).then(r=>r.text()),
-      ]);
-      S.products = parseCSV(p).map(x=>{
-        x.trade_name = (x.trade_name||x.name||'').trim();
-        x.dosage_form = (x.dosage_form||x.normalized_form||'').trim();
-        x.pack = (x.pack||x.normalized_pack||x.normalized_dose||'').trim();
-        x.is_znvlp = String(x.is_znvlp||'').toLowerCase()==='true' || x.is_znvlp==='1';
-        x.country = (x.country||x.manufacturer_country||'').trim();
-        return x;
-      });
-      S.ingredients = parseCSV(i).map(x=>{
-        x.normalized_inn = (x.normalized_inn||x.inn||'').toLowerCase();
-        x.unit = (x.unit||'').toLowerCase();
-        x.strength = (x.strength||'').replace(',', '.');
-        return x;
-      });
+    function normText(s){ return (s||'').toLowerCase().replace(/[-‐-‒–—―]/g,'').replace(/\s+/g,' ').trim(); }
+    function hyphenEq(a,b){ return normText(a)===normText(b); }
 
-      hydrateFilters();
-      const urlQ = new URLSearchParams(location.search).get('q');
-      if(urlQ){ document.getElementById('q').value = urlQ; doSearch(); }
-    }
-
-    function hydrateFilters(){
-      const formSel = document.getElementById('form');
-      const uniqForms = Array.from(new Set(S.products.map(p=>p.dosage_form).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
-      uniqForms.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; formSel.appendChild(o); });
-
-      const countrySel = document.getElementById('country');
-      const uniqCountries = Array.from(new Set(S.products.map(p=>p.country).filter(x=>x&&x!=='-'))).sort((a,b)=>a.localeCompare(b));
-      if(uniqCountries.length){
-        countrySel.style.display=''; uniqCountries.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; countrySel.appendChild(o); });
-      }else{
-        countrySel.style.display='none';
-      }
-    }
-
-    // --- Поисковая логика
-    function normalizeInnList(s){
-      // разделители: "+", ",", пробелы
-      return s.split(/[+,\s]+/).map(x=>x.trim().toLowerCase()).filter(Boolean);
+    function normalizeProduct(p){
+      p.trade_name = (p.trade_name||p.name||'').trim();
+      p.norm_trade = normText(p.trade_name);
+      p.dosage_form = (p.dosage_form||p.normalized_form||'').trim();
+      p.pack = (p.pack||p.normalized_pack||p.normalized_dose||'').trim();
+      p.is_znvlp = String(p.is_znvlp||'').toLowerCase()==='true' || p.is_znvlp==='1';
+      p.country = (p.manufacturer_country||p.country||'').trim();
+      p.manufacturer = (p.manufacturer||p.manufacturer_name||'').trim();
+      return p;
     }
 
     function unitFactor(u){
@@ -157,8 +176,49 @@
       return 1;
     }
 
+    async function load(){
+      const [p,i] = await Promise.all([
+        fetch(DATA.products,{cache:'no-store'}).then(r=>r.text()),
+        fetch(DATA.ingredients,{cache:'no-store'}).then(r=>r.text())
+      ]);
+      S.products = parseCSV(p).map(normalizeProduct);
+      S.ingredients = parseCSV(i).map(x=>{
+        x.normalized_inn = (x.normalized_inn||x.inn||'').toLowerCase();
+        x.unit = (x.unit||'').toLowerCase();
+        x.strength = (x.strength||'').replace(',', '.');
+        return x;
+      });
+      S.terms = new Set(S.ingredients.map(i=>i.normalized_inn));
+
+      hydrateFilters(S.products);
+      const urlQ = new URLSearchParams(location.search).get('q');
+      if(urlQ){ document.getElementById('q').value = urlQ; doSearch(); }
+      renderFavs();
+    }
+
+    function hydrateFilters(items){
+      const formSel = document.getElementById('form');
+      formSel.innerHTML = '<option value="">Форма выпуска</option>';
+      const uniqForms = Array.from(new Set(items.map(p=>p.dosage_form).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+      uniqForms.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; formSel.appendChild(o); });
+
+      const countrySel = document.getElementById('country');
+      countrySel.innerHTML = '<option value="">Страна</option>';
+      const uniqCountries = Array.from(new Set(items.map(p=>p.country).filter(x=>x&&x!=='-'))).sort((a,b)=>a.localeCompare(b));
+      if(uniqCountries.length){
+        countrySel.style.display=''; uniqCountries.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; countrySel.appendChild(o); });
+      }else{
+        countrySel.style.display='none';
+      }
+    }
+
+    function parseQueryToInns(s){
+      const tokens = s.split(/[+,\s]+/).map(t=>t.trim().toLowerCase()).filter(Boolean);
+      if(tokens.length && tokens.every(t=>S.terms.has(t))) return tokens;
+      return []; // иначе это поиск по ТН/тексту
+    }
+
     function doseVectorForProduct(p, inns){
-      // для сортировки: вектор доз по введённым МНН
       const list = S.ingredients.filter(i=>i.product_id===p.product_id);
       const map = new Map();
       for(const i of list){
@@ -169,7 +229,6 @@
       }
       return inns.map(n=> map.get(n)||0 );
     }
-
     function cmpArrays(a,b){
       for(let i=0;i<Math.max(a.length,b.length);i++){
         const x=a[i]||0, y=b[i]||0;
@@ -177,88 +236,32 @@
       }
       return 0;
     }
-
-    function buildKeyForDedup(p){
-      const inns = S.ingredients.filter(i=>i.product_id===p.product_id).map(i=>i.normalized_inn).filter(Boolean);
-      const uniqInns=[...new Set(inns)].sort().join('+');
-      return [p.trade_name.toLowerCase(), uniqInns, p.dosage_form.toLowerCase(), p.pack.toLowerCase()].join('|');
+    function totalDose(p){
+      const list=S.ingredients.filter(i=>i.product_id===p.product_id);
+      return list.reduce((s,i)=> s + (parseFloat(i.strength||'0')*unitFactor(i.unit)||0), 0);
     }
 
-    function doSearch(){
-      showSpin(true);
-      setTimeout(()=>{ // дать перерисоваться спиннеру
-        const q = document.getElementById('q').value.trim();
-        const forms = document.getElementById('form').value;
-        const countrySel = document.getElementById('country');
-        const country = countrySel && countrySel.style.display!=='none' ? countrySel.value : '';
-        const needZnvlp = document.getElementById('znvlp').checked;
-        const exactInn = document.getElementById('exactInn').checked;
+    function buildGroup(items){
+      // группируем по ТН: trade_name (нормализовано по дефису)
+      const m=new Map();
+      for(const p of items){
+        const key = p.norm_trade || p.trade_name.toLowerCase();
+        if(!m.has(key)) m.set(key,{name:p.trade_name, key, items:[]});
+        m.get(key).items.push(p);
+      }
+      return [...m.values()];
+    }
 
-        const inns = normalizeInnList(q);
-        const allInns = new Set(S.ingredients.map(i=>i.normalized_inn));
-        const looksLikeINN = inns.length>0 && inns.every(x=> allInns.has(x));
-
-        // 1) фильтр по МНН (если распознали МНН)
-        let items = S.products;
-        if(looksLikeINN){
-          const acc = new Map(); // product_id -> matched count
-          for(const row of S.ingredients){
-            if(inns.includes(row.normalized_inn)){
-              acc.set(row.product_id, (acc.get(row.product_id)||0)+1);
-            }
-          }
-          const pidSet = new Set();
-          acc.forEach((cnt,pid)=>{
-            // есть все введённые МНН?
-            if(cnt===new Set(inns).size) pidSet.add(pid);
-          });
-          items = items.filter(p=> pidSet.has(p.product_id));
-
-          // «только это вещество»: для одиночного МНН — требуем моно-препарат
-          if(exactInn && inns.length===1){
-            items = items.filter(p=>{
-              const uniq = new Set(S.ingredients.filter(i=>i.product_id===p.product_id).map(i=>i.normalized_inn));
-              return uniq.size===1 && uniq.has(inns[0]);
-            });
-          }
-        }else if(q){ // 2) поиск по торговому названию
-          const needle = q.toLowerCase();
-          items = items.filter(p=> (p.trade_name||'').toLowerCase().includes(needle));
-        }
-
-        // доп. фильтры
-        if(forms) items = items.filter(p=>p.dosage_form===forms);
-        if(country) items = items.filter(p=>p.country===country);
-        if(needZnvlp) items = items.filter(p=>p.is_znvlp===true);
-
-        // дедация
-        const byKey=new Map();
-        for(const p of items){ const k=buildKeyForDedup(p); if(!byKey.has(k)) byKey.set(k,p); }
-        items = [...byKey.values()];
-
-        // сортировка: по дозам введённых МНН; если нет — по названию/упаковке
-        if(inns.length>0){
-          items.sort((a,b)=>{
-            const va = doseVectorForProduct(a,inns);
-            const vb = doseVectorForProduct(b,inns);
-            const d = cmpArrays(va,vb);
-            if(d!==0) return d;
-            return (a.trade_name||'').localeCompare(b.trade_name||'');
-          });
-        }else{
-          items.sort((a,b)=>{
-            const n=(a.trade_name||'').localeCompare(b.trade_name||''); if(n) return n;
-            return (a.pack||'').localeCompare(b.pack||'');
-          });
-        }
-
-        render(items);
-        showSpin(false);
-      },0);
+    function productIngredientsText(pid){
+      return S.ingredients.filter(i=>i.product_id===pid)
+        .map(i=>{
+          const dose=(i.strength||'').replace('.',',').trim(); const unit=(i.unit||'').trim();
+          return [i.normalized_inn, (dose+' '+unit).trim()].filter(Boolean).join(' ');
+        }).filter(Boolean).join(' + ');
     }
 
     function manufacturerLine(p){
-      const manuf = p.manufacturer || p.manufacturer_name || '';
+      const manuf = p.manufacturer || '';
       const ctry  = p.manufacturer_country || p.country || '';
       if(!manuf && !ctry) return '';
       if(manuf && ctry) return `Производитель: ${manuf} (${ctry})`;
@@ -266,66 +269,190 @@
       return `Страна производства: ${ctry}`;
     }
 
-    function render(items){
-      const root = document.getElementById('results');
+    function doSearch(){
+      showSpin(true);
+      setTimeout(()=>{
+        const q = document.getElementById('q').value.trim();
+        const inns = parseQueryToInns(q);
+        const form = document.getElementById('form').value;
+        const country = document.getElementById('country').value;
+        const needZnvlp = document.getElementById('znvlp').checked;
+
+        let items = S.products;
+
+        if(inns.length){ // поиск по МНН (включая моно и комбинации)
+          const acc=new Map();
+          for(const row of S.ingredients){
+            if(inns.includes(row.normalized_inn)){
+              acc.set(row.product_id, (acc.get(row.product_id)||0)+1);
+            }
+          }
+          const pidSet = new Set();
+          acc.forEach((cnt,pid)=>{ if(cnt===new Set(inns).size) pidSet.add(pid); });
+          items = items.filter(p=> pidSet.has(p.product_id));
+
+          // сортировка по дозовым векторам
+          items.sort((a,b)=>{
+            const va=doseVectorForProduct(a,inns), vb=doseVectorForProduct(b,inns);
+            const d=cmpArrays(va,vb); if(d!==0) return d;
+            return (a.trade_name||'').localeCompare(b.trade_name||'');
+          });
+        } else if(q){ // поиск по торговому названию (дефис-инвариантный)
+          const needle = normText(q);
+          items = items.filter(p=> normText(p.trade_name).includes(needle));
+          // сортировка по суммарной дозе (для красоты)
+          items.sort((a,b)=> totalDose(a)-totalDose(b) || (a.pack||'').localeCompare(b.pack||''));
+        }
+
+        // фильтры
+        if(form) items = items.filter(p=>p.dosage_form===form);
+        if(country) items = items.filter(p=>p.country===country);
+        if(needZnvlp) items = items.filter(p=>p.is_znvlp);
+
+        // формы выпуска — по результатам
+        hydrateFilters(items);
+
+        // группируем по ТН
+        const groups = buildGroup(items);
+        renderGroups(groups, document.getElementById('results'));
+        document.getElementById('empty').style.display = groups.length? 'none':'block';
+        showSpin(false);
+      },0);
+    }
+
+    function renderGroups(groups, root){
       root.innerHTML='';
-      document.getElementById('empty').style.display = items.length? 'none':'block';
+      for(const g of groups){
+        // краткий состав — берём из первой позиции после сортировки по дозе
+        g.items.sort((a,b)=> totalDose(a)-totalDose(b) || (a.pack||'').localeCompare(b.pack||''));
+        const first = g.items[0] || {};
+        const ingr = first.product_id ? productIngredientsText(first.product_id) : '—';
+        const manuf = first.product_id ? manufacturerLine(first) : '';
 
-      items.forEach(p=>{
-        const ingr = S.ingredients
-          .filter(i=>i.product_id===p.product_id)
-          .map(i=>{
-            const dose = (i.strength||'').replace('.',',').trim();
-            const unit = (i.unit||'').trim();
-            const inn = i.normalized_inn || '';
-            return [inn, (dose+' '+unit).trim()].filter(Boolean).join(' ');
-          })
-          .filter(Boolean)
-          .join(' + ');
-
-        const manuf = manufacturerLine(p);
-
-        const div = document.createElement('div');
-        div.className='drug';
-        const favId = p.product_id;
-        const isFav = S.favs.has(favId);
-
-        div.innerHTML = `
-          <button type="button" class="fav ${isFav?'active':''}" title="В избранное" data-id="${favId}">★</button>
-          <div class="name">${p.trade_name || 'Без названия'}</div>
-          <div class="meta">${ingr || '—'}<br/>${p.dosage_form || ''}${p.pack? ' • '+p.pack:''}</div>
+        const el=document.createElement('div'); el.className='drug';
+        el.innerHTML=`
+          <button type="button" class="fav ${hasAnyFav(g.items)?'active':''}" data-group="${g.key}" title="В избранное">★</button>
+          <div class="name">${g.name || 'Без названия'}</div>
+          <div class="meta">${ingr}<br/>${first.dosage_form||''}${first.pack? ' • '+first.pack:''}</div>
           <div class="tags">
-            ${p.country? `<span class='pill'>${p.country}</span>`:''}
-            ${p.is_znvlp? `<span class='pill'>ЖНВЛП</span>`:''}
-            ${p.atc_code? `<span class='pill'>ATC: ${p.atc_code}</span>`:''}
+            ${first.country? `<span class='pill'>${first.country}</span>`:''}
+            ${first.is_znvlp? `<span class='pill'>ЖНВЛП</span>`:''}
+            ${first.atc_code? `<span class='pill'>ATC: ${first.atc_code}</span>`:''}
           </div>
           <div class="meta">
-            ${p.ru_registry_url? `<a href='${p.ru_registry_url}' target='_blank'>ГРЛС</a>`:''}
-            ${p.instruction_url? ` • <a href='${p.instruction_url}' target='_blank'>Инструкция</a>`:''}
+            ${first.ru_registry_url? `<a href='${first.ru_registry_url}' target='_blank'>ГРЛС</a>`:''}
+            ${first.instruction_url? ` • <a href='${first.instruction_url}' target='_blank'>Инструкция</a>`:''}
           </div>
           ${manuf? `<div class="meta">${manuf}</div>`:''}
+          <button class="variants-btn" data-group="${g.key}">Варианты (${g.items.length})</button>
         `;
-        root.appendChild(div);
+        root.appendChild(el);
+      }
+
+      // клики по избранному на группе: добавляем все варианты/удаляем все
+      root.querySelectorAll('.fav').forEach(btn=>{
+        btn.onclick=()=>{
+          const key=btn.getAttribute('data-group');
+          const group = groups.find(x=>x.key===key);
+          const anyFav = hasAnyFav(group.items);
+          for(const p of group.items){
+            if(anyFav){ S.favs.delete(p.product_id); }
+            else { S.favs.add(p.product_id); }
+          }
+          saveFavs(); btn.classList.toggle('active'); renderFavs(true);
+        };
       });
 
-      // обработчики избранного
-      root.querySelectorAll('.fav').forEach(btn=>{
-        btn.onclick = () => {
-          const id = btn.getAttribute('data-id');
-          if(S.favs.has(id)) S.favs.delete(id); else S.favs.add(id);
-          localStorage.setItem('favs', JSON.stringify([...S.favs]));
-          btn.classList.toggle('active');
+      // открыть модалку вариантов
+      root.querySelectorAll('.variants-btn').forEach(b=>{
+        b.onclick=()=>{
+          const key=b.getAttribute('data-group');
+          const group = groups.find(x=>x.key===key);
+          openVariantsModal(group);
         };
       });
     }
 
-    // события
+    function hasAnyFav(items){ return items.some(p=> S.favs.has(p.product_id)); }
+    function saveFavs(){ localStorage.setItem('favs', JSON.stringify([...S.favs])); }
+
+    // Модалка вариантов
+    const modalBack=document.getElementById('modalBack');
+    document.getElementById('modalClose').onclick=()=> modalBack.style.display='none';
+    function openVariantsModal(group){
+      document.getElementById('modalTitle').textContent = group.name + ' — варианты';
+      const tb = document.querySelector('#variantsTable tbody');
+      tb.innerHTML='';
+
+      // для сценария по МНН — сортируем по дозовым векторам относительно запроса
+      const inns = parseQueryToInns(document.getElementById('q').value.trim());
+      const items = [...group.items];
+      if(inns.length){
+        items.sort((a,b)=> {
+          const d=cmpArrays(doseVectorForProduct(a,inns), doseVectorForProduct(b,inns));
+          if(d!==0) return d;
+          return (a.pack||'').localeCompare(b.pack||'');
+        });
+      } else {
+        items.sort((a,b)=> totalDose(a)-totalDose(b) || (a.pack||'').localeCompare(b.pack||''));
+      }
+
+      for(const p of items){
+        const tr=document.createElement('tr');
+        const ingr = productIngredientsText(p.product_id);
+        const favOn = S.favs.has(p.product_id);
+        tr.innerHTML=`
+          <td>${ingr||'—'}</td>
+          <td>${p.dosage_form||''}</td>
+          <td>${p.pack||''}</td>
+          <td>${[p.country && `<span class="pill">${p.country}</span>`, p.is_znvlp && `<span class="pill">ЖНВЛП</span>`, p.atc_code && `<span class="pill">ATC: ${p.atc_code}</span>`].filter(Boolean).join(' ')}</td>
+          <td>${p.ru_registry_url? `<a href='${p.ru_registry_url}' target='_blank'>ГРЛС</a>`:''} ${p.instruction_url? ` • <a href='${p.instruction_url}' target='_blank'>Инструкция</a>`:''}</td>
+          <td style="text-align:center"><button class="fav ${favOn?'active':''}" data-id="${p.product_id}" title="В избранное">★</button></td>
+        `;
+        tb.appendChild(tr);
+      }
+      // обработчики фавов в таблице
+      tb.querySelectorAll('.fav').forEach(b=>{
+        b.onclick=()=>{
+          const id=b.getAttribute('data-id');
+          if(S.favs.has(id)) S.favs.delete(id); else S.favs.add(id);
+          saveFavs(); b.classList.toggle('active'); renderFavs(true);
+          // иконка на карточке тоже может измениться — просто перезапустим поиск чтобы перерисовать
+          // (быстро и просто; можно оптимизировать по месту при желании)
+        };
+      });
+
+      modalBack.style.display='flex';
+    }
+
+    // Избранное: отображение
+    function renderFavs(silent){
+      const pane=document.getElementById('favs');
+      const ids=[...S.favs];
+      if(!ids.length){
+        pane.innerHTML=''; document.getElementById('favsEmpty').style.display='block'; return;
+      }
+      document.getElementById('favsEmpty').style.display='none';
+      const items = S.products.filter(p=> S.favs.has(p.product_id));
+      const groups = buildGroup(items);
+      renderGroups(groups, pane);
+      if(!silent && document.getElementById('tabFavs').classList.contains('active')){
+        // ничего
+      }
+    }
+
+    // Табы
+    const tabSearch=document.getElementById('tabSearch');
+    const tabFavs=document.getElementById('tabFavs');
+    tabSearch.onclick=()=>{ tabSearch.classList.add('active'); tabFavs.classList.remove('active'); document.getElementById('searchPane').classList.remove('hidden'); document.getElementById('favsPane').classList.add('hidden'); }
+    tabFavs.onclick=()=>{ tabFavs.classList.add('active'); tabSearch.classList.remove('active'); document.getElementById('searchPane').classList.add('hidden'); document.getElementById('favsPane').classList.remove('hidden'); renderFavs(); }
+
+    // События
     document.getElementById('find').onclick = doSearch;
     document.getElementById('q').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
     document.getElementById('form').onchange = doSearch;
     document.getElementById('country').onchange = doSearch;
     document.getElementById('znvlp').onchange = doSearch;
-    document.getElementById('exactInn').onchange = doSearch;
 
     load();
   </script>
